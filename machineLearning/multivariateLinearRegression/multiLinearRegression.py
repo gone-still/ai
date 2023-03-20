@@ -1,4 +1,4 @@
-# File        :   multiLinearRegressuib.py
+# File        :   multiLinearRegression.py
 # Version     :   1.0.0
 
 # Description :   Multivariate Linear Regression from scratch using
