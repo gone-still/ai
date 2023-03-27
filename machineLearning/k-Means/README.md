@@ -4,6 +4,7 @@ Naive implementation of K-Means clustering in Python. K-Means clustering is an u
 
 Here's an animation of some random samples of data being clustered into k=3 clusters:
 
+![kmeans_anim](https://user-images.githubusercontent.com/8327505/227825237-47f5f137-15a1-436d-b3b6-7943998401c6.gif)
 
 
 Step 1 - Set k random centroids, one for each cluster
