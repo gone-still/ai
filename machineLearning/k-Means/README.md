@@ -8,8 +8,12 @@ Here's an animation of some random samples of data being clustered into k=3 clus
 
 
 Step 1 - Set k random centroids, one for each cluster
+
 Step 2 - Compute the euclidean distance from each data point to each cluster centroid,
 		 assign data point to closest cluster
+		 
 Step 3 - Set new clusters centroids by computing each cluster's mean x and y
+
 Step 4 - For each cluster, measure the error between the old centroids and the new centroids
+
 Step 5 - If the total error is above a threshold, go to Step 2. Otherwise, end the algorithm.
