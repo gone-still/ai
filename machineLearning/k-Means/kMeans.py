@@ -1,9 +1,9 @@
 # File        :   kMeans.py
 # Version     :   1.0.0
 # Description :   Naive implementation of K-Means
-#                
+
 # Date:       :   Mar 26, 2023
-# Author      :   Mr. X
+# Author      :   Ricardo Acevedo-Avila
 # License     :   Creative Commons CC0
 
 import numpy as np
