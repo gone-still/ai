@@ -1,7 +1,7 @@
 # File        :   sentimentAnalysis.py
 # Version     :   1.0.0
 # Description :   Brief example of sentiment analysis using bag of words
-#				  and a SVM.
+#                 and a SVM.
                
 # Date:       :   Mar 30, 2023
 # Author      :   Ricardo Acevedo-Avila
