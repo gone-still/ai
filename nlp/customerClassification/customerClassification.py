@@ -2,7 +2,7 @@
 # Version     :   0.0.8
 # Description :   An unpaid "challenge" from company X to apply NLP techniques
 #                 to classify customer requests into products. The shitty dataset has
-#                 already been processed through Weka's CfsSubsetEval to drop the 
+#                 already been pre-processed with Weka's CfsSubsetEval to drop the 
 #                 meaningless features and reduce dimentionality.
 
 # Date:       :   Apr 04, 2023
