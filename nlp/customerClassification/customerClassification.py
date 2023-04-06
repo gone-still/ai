@@ -1,13 +1,14 @@
 # File        :   customerClassification.py
-# Version     :   0.9.2
+# Version     :   0.9.5
 # Description :   An unpaid "challenge" from company X to apply NLP techniques
 #                 to classify customer requests into products. The shitty dataset has
-#                 already been pre-processed with Weka's CfsSubsetEval to drop the 
+#                 already been pre-processed with Weka's CfsSubsetEval to drop the
 #                 meaningless features and reduce dimensionality.
 
-# Date:       :   Apr 05, 2023
+# Date:       :   Apr 06, 2023
 # Author      :   Ricardo Acevedo-Avila
 # License     :   Creative Commons CC0
+
 
 import nltk, random
 import pandas as pd
@@ -21,6 +22,7 @@ from sklearn import svm
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.model_selection import GridSearchCV
+from sklearn.utils import resample
 
 
 # Applies basic word and character filtering to
@@ -68,9 +70,6 @@ print(nlpDataset.head())
 
 # Extract categorical columns:
 nlpDataset_columns = nlpDataset.copy()
-nlpDataset_columns = nlpDataset_columns[["product", "sub-product", "issue", "resolution"]]
-print("-----------------------------")
-print(nlpDataset_columns.head())
 
 # Process predicting class/feature:
 classLabels = nlpDataset_columns["product"]
@@ -81,6 +80,10 @@ for c in classCounter:
     value = classCounter[c]
     print("Class: ", c, " Count: ", value)
 
+# Plot class distribution:
+nlpDataset_columns.groupby("product").size().plot(kind="pie", y="product", label="Type", autopct="%1.1f%%")
+plt.show()
+
 # Remove duplicated class labels:
 classesDict = classLabels.drop_duplicates()
 
@@ -90,7 +93,52 @@ classesDict = classesDict.to_dict()
 
 # Loop through the classes dictionary and
 # encode each class label as a number:
+downsampleSize = 6052
+tempDataset = pd.DataFrame()
 for i, key in enumerate(classesDict):
+    # Get current class:
+    currentClass = classesDict[key]
+
+    # Get all the samples from current class:
+    classFeatures = nlpDataset_columns[nlpDataset_columns["product"] == currentClass]
+
+    currentLength = classFeatures.shape[0]
+    print("(Pre-resampling) Class: " + currentClass + " Samples:", currentLength)
+
+    # Get the new class samples:
+    classResampled = resample(classFeatures, replace=True, n_samples=downsampleSize, random_state=42069)
+
+    currentLength = classResampled.shape[0]
+    print("(Post-resampling) Class: " + currentClass + " Samples:", currentLength)
+
+    # Into the temp dataset:
+    tempDataset = pd.concat([tempDataset, classResampled], axis=0)
+
+    print("Resample dataset samples:", tempDataset.shape[0])
+
+# Shuffle samples and reset indices:
+tempDataset = tempDataset.sample(frac=1).reset_index(drop=True)
+
+# The re-sampled dataset:
+nlpDataset_columns = tempDataset
+# Plot class distribution:
+nlpDataset_columns.groupby("product").size().plot(kind="pie", y="product", label="Type", autopct="%1.1f%%")
+plt.show()
+
+# Store "consumer-message" feature for bag of words encoding::
+datasetDocuments = nlpDataset_columns["consumer-message"].values.tolist()
+
+classLabels = nlpDataset_columns["product"]
+classCounter = Counter(classLabels)
+
+print(" ------ Class distribution [resampled] ------ ")
+for c in classCounter:
+    value = classCounter[c]
+    print("Class: ", c, " Count: ", value)
+
+# Encode classes:
+for i, key in enumerate(classesDict):
+    # Get current class:
     currentClass = classesDict[key]
     classLabels = np.where(classLabels == currentClass, key, classLabels)
 
@@ -104,6 +152,10 @@ print("---- Class encoding -----------------------------")
 print(encodedTable)
 
 # Process categorical features:
+nlpDataset_columns = nlpDataset_columns[["product", "sub-product", "issue", "resolution"]]
+print("-----------------------------")
+print(nlpDataset_columns.head())
+
 features = ["sub-product", "issue", "resolution"]
 totalFeatures = len(features)
 # Percent of the label values to preserve:
@@ -156,10 +208,6 @@ encodedDataset = encodedDataset.reset_index(drop=True)
 # Show the final binary dataset:
 print("-----------------------------")
 print(encodedDataset.head(5))
-
-# Use Bag of Words to vectorize the "consumer-message" feature:
-wobFeature = nlpDataset.copy()
-datasetDocuments = wobFeature["consumer-message"].values.tolist()
 
 # Print the dataset documents:
 print("-------------- Dataset Documents ---------------")
@@ -233,7 +281,7 @@ print("---- Creating and Fitting SVM  -----------------------------")
 # Classification via SVM:
 # Train the SVM
 # SVM hyperparameters: C = 0.8 with linear kernel:
-svmModel = svm.SVC(C=4.0, kernel="linear")
+svmModel = svm.SVC(C=2.0, kernel="linear")
 svmModel.fit(trainingFeatures, trainingLabels)
 
 print("---- Cross Validating SVM  ---------------------------------")
@@ -256,8 +304,7 @@ plt.show()
 # print("---- Running Search Grid  ---------------------------------")
 # # Hyperparameter optimization using Grid Search:
 # parameters = {"kernel": ("linear", "rbf"), "C": (1, 4, 8, 16, 32)}
-# svm = svm.SVC()
-# optimizedSVM = GridSearchCV(svm, parameters, cv=5, n_jobs=-1)
+# svm = svm.SVC()# optimizedSVM = GridSearchCV(svm, parameters, cv=5, n_jobs=-1)
 # optimizedSVM.fit(trainingFeatures, trainingLabels)
 #
 # # Print hyperparameters & accuracy:
