@@ -1,11 +1,11 @@
 # File        :   customerClassification.py
-# Version     :   0.0.8
+# Version     :   0.9.2
 # Description :   An unpaid "challenge" from company X to apply NLP techniques
 #                 to classify customer requests into products. The shitty dataset has
 #                 already been pre-processed with Weka's CfsSubsetEval to drop the 
 #                 meaningless features and reduce dimensionality.
 
-# Date:       :   Apr 04, 2023
+# Date:       :   Apr 05, 2023
 # Author      :   Ricardo Acevedo-Avila
 # License     :   Creative Commons CC0
 
@@ -22,8 +22,35 @@ from sklearn.model_selection import cross_val_score
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.model_selection import GridSearchCV
 
+
+# Applies basic word and character filtering to
+# a document:
+def wordFilter(inputDocuments, filteredWords):
+    # Word filter:
+    # All strings to lowercase, removes punctuation, removes "xxxxx" and
+    # removes more than one whitespaces in messages:
+    for m in range(len(inputDocuments)):
+        currentMessage = inputDocuments[m]
+        currentMessage = currentMessage.lower()
+        # Regex to remove punctuation:
+        currentMessage = re.sub(r"[^\w\s]", '', currentMessage)
+
+        # Apply filter word. Replaces targets with empty string:
+        for f in range(len(filteredWords)):
+            targetWord = filteredWords[f]
+            currentMessage = currentMessage.replace(targetWord, " ")
+
+        # Removes more than one whitespace character:
+        currentMessage = re.sub(r"\s\s+", " ", currentMessage)
+
+        inputDocuments[m] = currentMessage
+
+    # Done, return the filtered list of documents:
+    return inputDocuments
+
+
 # Load the dataset:
-filePath = "D://dataSets//customer-issues-train-03.csv"
+filePath = "D://dataSets//nlp-case//customer-issues-train-03.csv"
 nlpDataset = pd.read_csv(filePath)
 # Check out the columns:
 print(nlpDataset.columns)
@@ -48,8 +75,15 @@ print(nlpDataset_columns.head())
 # Process predicting class/feature:
 classLabels = nlpDataset_columns["product"]
 classCounter = Counter(classLabels)
+
+print(" ------ Class distribution ------ ")
+for c in classCounter:
+    value = classCounter[c]
+    print("Class: ", c, " Count: ", value)
+
 # Remove duplicated class labels:
 classesDict = classLabels.drop_duplicates()
+
 # Reset index, store as a dictionary:
 classesDict = classesDict.reset_index(drop=True)
 classesDict = classesDict.to_dict()
@@ -65,6 +99,7 @@ classLabels = pd.DataFrame(classLabels, columns=["class"])
 # Check out the class encoding:
 f = nlpDataset_columns["product"].reset_index(drop=True)
 encodedTable = pd.concat([f, classLabels], axis=1)
+
 print("---- Class encoding -----------------------------")
 print(encodedTable)
 
@@ -124,32 +159,34 @@ print(encodedDataset.head(5))
 
 # Use Bag of Words to vectorize the "consumer-message" feature:
 wobFeature = nlpDataset.copy()
-trainDocuments = wobFeature["consumer-message"].values.tolist()
+datasetDocuments = wobFeature["consumer-message"].values.tolist()
 
-print(wobFeature)
-print(trainDocuments)
+# Print the dataset documents:
+print("-------------- Dataset Documents ---------------")
+print(datasetDocuments)
 
-# Word filter:
-# All strings to lowercase, removes punctuation, removes "xxxxx" and
-# removes more than one whitespaces in messages:
+# Apply the word filter before message vectorization:
 filteredWords = ["xxxx", " i ", "i ", " us ", " we ", " am "]
-for m in range(len(trainDocuments)):
-    currentMessage = trainDocuments[m]
-    currentMessage = currentMessage.lower()
-    # Regex to remove punctuation:
-    currentMessage = re.sub(r"[^\w\s]", '', currentMessage)
+datasetDocuments = wordFilter(datasetDocuments, filteredWords)
 
-    # Apply filter word. Replaces targets with empty string:
-    for f in range(len(filteredWords)):
-        targetWord = filteredWords[f]
-        currentMessage = currentMessage.replace(targetWord, " ")
+# List to dataframe:
+datasetDocuments = pd.DataFrame({"consumer-message": datasetDocuments})
+# Create complete dataset (Encoded features + documents + classes):
+completeDataset = pd.concat([classLabels, encodedDataset, datasetDocuments], axis=1)
+# completeDataset = pd.concat([classLabels, datasetDocuments], axis=1)
 
-    # Removes more than one whitespace character:
-    currentMessage = re.sub(r"\s\s+", " ", currentMessage)
+# Dataset division, training: 80% testing: 20%
+trainDataset, testDataset = train_test_split(completeDataset, test_size=0.20, random_state=42069)
 
-    trainDocuments[m] = currentMessage
+# Reset dataframe indices:
+trainDataset = trainDataset.reset_index(drop=True)
+testDataset = testDataset.reset_index(drop=True)
 
 # Sample/Text vectorization:
+# Extract only the test and train documents:
+trainDocuments = trainDataset["consumer-message"]
+testDocuments = testDataset["consumer-message"]
+
 # Use bag of words to vectorize each sample:
 # Bag of words is applied via the TfidfVectorizer object,
 # Each token is a word with the characters a-z or A-Z,
@@ -157,38 +194,74 @@ for m in range(len(trainDocuments)):
 # not filter out the word:
 wordVectorizer = TfidfVectorizer(min_df=0.1, max_df=0.8, token_pattern=r'[a-zA-Z]+')
 
-# Fit messages:
-messagesVectorized = wordVectorizer.fit_transform(trainDocuments)
+# Fit Train:
+trainSamplesVectorized = wordVectorizer.fit_transform(trainDocuments)
+# Fit Test:
+testSamplesVectorized = wordVectorizer.transform(testDocuments)
 
 # Check out the vectorized dataset. Vector size (second dimension)
-print("Vectorized messages shape: ", messagesVectorized.shape)
+print("Train Samples shape: ", trainSamplesVectorized.shape)
+print("Test Samples shape: ", testSamplesVectorized.shape)
 
-# Check out the word encoding per document/sample:
-wordEncoding = pd.DataFrame(messagesVectorized.toarray(), columns=wordVectorizer.get_feature_names())
+# Sparse matrices into pandas dataframe:
+trainDocumentEncoding = pd.DataFrame(trainSamplesVectorized.toarray(), columns=wordVectorizer.get_feature_names_out())
+testDocumentEncoding = pd.DataFrame(testSamplesVectorized.toarray(), columns=wordVectorizer.get_feature_names_out())
 
-print(wordEncoding)
+# Check out the document encoding (per sample) on the training dataset:
+print(trainDocumentEncoding)
 
-# Create Training Numerical Dataset:
-trainingDataset = pd.concat([encodedDataset, wordEncoding], axis=1)
+# Create Complete Datasets, replace "consumer-message" feature with vectorized encoding:
+trainDataset = trainDataset.drop("consumer-message", axis=1)
+trainDataset = pd.concat([trainDataset, trainDocumentEncoding], axis=1)
+
+testDataset = testDataset.drop("consumer-message", axis=1)
+testDataset = pd.concat([testDataset, testDocumentEncoding], axis=1)
 
 # Conversion to lists:
-trainingDataset = np.asarray(trainingDataset.values.tolist())
-trainingLabels = np.asarray(classLabels.values.tolist())
+trainingFeatures = np.asarray(trainDataset.iloc[:, 1:].values.tolist())
+trainingLabels = np.asarray(trainDataset.iloc[:, 0:1].values.tolist())
+
+testFeatures = np.asarray(testDataset.iloc[:, 1:].values.tolist())
+testLabels = np.asarray(testDataset.iloc[:, 0:1].values.tolist())
+
 # Flatten the labels, because sklearn's SVM receives a row instead
 # of a column for its class labels:
 trainingLabels = np.ravel(trainingLabels)
+testLabels = np.ravel(testLabels)
 
 print("---- Creating and Fitting SVM  -----------------------------")
-
 # Classification via SVM:
 # Train the SVM
 # SVM hyperparameters: C = 0.8 with linear kernel:
-svmModel = svm.SVC(C=1.0, kernel="linear")
-svmModel.fit(trainingDataset, trainingLabels)
+svmModel = svm.SVC(C=4.0, kernel="linear")
+svmModel.fit(trainingFeatures, trainingLabels)
 
 print("---- Cross Validating SVM  ---------------------------------")
 # Evaluate SVM using cross validation, use 5 folds:
 cvFolds = 5
-svmAccuracy = cross_val_score(estimator=svmModel, X=trainingDataset, y=trainingLabels, cv=cvFolds, n_jobs=-1)
+svmAccuracy = cross_val_score(estimator=svmModel, X=trainingFeatures, y=trainingLabels, cv=cvFolds, n_jobs=-1)
 # Accuracy for each fold:
 print(svmAccuracy)
+
+# Test the SVM:
+svmPredictions = svmModel.predict(testFeatures)
+print(svmModel.score(testFeatures, testLabels))
+
+# Get confusion matrix and its plot:
+confusionMatrix = confusion_matrix(testLabels, svmPredictions, labels=svmModel.classes_, normalize="all")
+disp = ConfusionMatrixDisplay(confusion_matrix=confusionMatrix, display_labels=svmModel.classes_)
+disp.plot()
+plt.show()
+
+# print("---- Running Search Grid  ---------------------------------")
+# # Hyperparameter optimization using Grid Search:
+# parameters = {"kernel": ("linear", "rbf"), "C": (1, 4, 8, 16, 32)}
+# svm = svm.SVC()
+# optimizedSVM = GridSearchCV(svm, parameters, cv=5, n_jobs=-1)
+# optimizedSVM.fit(trainingFeatures, trainingLabels)
+#
+# # Print hyperparameters & accuracy:
+# print(optimizedSVM.best_params_)
+# svmAccuracy = cross_val_score(estimator=optimizedSVM, X=trainingFeatures, y=trainingLabels, cv=cvFolds, n_jobs=-1)
+# # Accuracy for each fold:
+# print(svmAccuracy)
