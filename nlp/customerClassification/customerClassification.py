@@ -1,5 +1,5 @@
 # File        :   customerClassification.py
-# Version     :   0.9.5
+# Version     :   0.9.9
 # Description :   An unpaid "challenge" from company X to apply NLP techniques
 #                 to classify customer requests into products. The shitty dataset has
 #                 already been pre-processed with Weka's CfsSubsetEval to drop the
@@ -10,19 +10,19 @@
 # License     :   Creative Commons CC0
 
 
-import nltk, random
 import pandas as pd
 import re
 import matplotlib.pyplot as plt
 import numpy as np
 from collections import Counter
 from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn import svm
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.model_selection import GridSearchCV
 from sklearn.utils import resample
+import pickle
 
 
 # Applies basic word and character filtering to
@@ -51,9 +51,16 @@ def wordFilter(inputDocuments, filteredWords):
     return inputDocuments
 
 
+# Scrip flags:
+saveModel = False
+crossValidateModel = True
+
 # Load the dataset:
-filePath = "D://dataSets//nlp-case//customer-issues-train-03.csv"
-nlpDataset = pd.read_csv(filePath)
+projectPath = "D://dataSets//nlp-case//"
+datasetName = "customer-issues-train-03.csv"
+modelName = "customerClassifier-SVM.sav"
+
+nlpDataset = pd.read_csv(projectPath + datasetName)
 # Check out the columns:
 print(nlpDataset.columns)
 
@@ -65,6 +72,8 @@ print(nlpDataset.head())
 
 # Drop missing values:
 nlpDataset = nlpDataset.dropna(axis=0)
+# Reshuffle:
+nlpDataset = nlpDataset.sample(frac=1).reset_index(drop=True)
 print("-----------------------------")
 print(nlpDataset.head())
 
@@ -75,10 +84,15 @@ nlpDataset_columns = nlpDataset.copy()
 classLabels = nlpDataset_columns["product"]
 classCounter = Counter(classLabels)
 
+# List of class counts:
+classCounts = []
+
 print(" ------ Class distribution ------ ")
 for c in classCounter:
     value = classCounter[c]
     print("Class: ", c, " Count: ", value)
+    # Into the class count list:
+    classCounts.append(value)
 
 # Plot class distribution:
 nlpDataset_columns.groupby("product").size().plot(kind="pie", y="product", label="Type", autopct="%1.1f%%")
@@ -91,9 +105,16 @@ classesDict = classLabels.drop_duplicates()
 classesDict = classesDict.reset_index(drop=True)
 classesDict = classesDict.to_dict()
 
+# Get median of the count per class. This should be
+# the class count to which all classes are resampled to...
+classCounts = np.array(classCounts)
+datasetMedian = np.median(classCounts)
+
 # Loop through the classes dictionary and
 # encode each class label as a number:
-downsampleSize = 6052
+downsampleSize = 0.9 * datasetMedian
+downsampleSize = int(downsampleSize)
+
 tempDataset = pd.DataFrame()
 for i, key in enumerate(classesDict):
     # Get current class:
@@ -220,8 +241,8 @@ datasetDocuments = wordFilter(datasetDocuments, filteredWords)
 # List to dataframe:
 datasetDocuments = pd.DataFrame({"consumer-message": datasetDocuments})
 # Create complete dataset (Encoded features + documents + classes):
-completeDataset = pd.concat([classLabels, encodedDataset, datasetDocuments], axis=1)
-# completeDataset = pd.concat([classLabels, datasetDocuments], axis=1)
+# completeDataset = pd.concat([classLabels, encodedDataset, datasetDocuments], axis=1)
+completeDataset = pd.concat([classLabels, datasetDocuments], axis=1)
 
 # Dataset division, training: 80% testing: 20%
 trainDataset, testDataset = train_test_split(completeDataset, test_size=0.20, random_state=42069)
@@ -240,7 +261,7 @@ testDocuments = testDataset["consumer-message"]
 # Each token is a word with the characters a-z or A-Z,
 # min_df is the minimal threshold of word frequency needed to
 # not filter out the word:
-wordVectorizer = TfidfVectorizer(min_df=0.1, max_df=0.8, token_pattern=r'[a-zA-Z]+')
+wordVectorizer = TfidfVectorizer(min_df=0.05, max_df=0.9, token_pattern=r'[a-zA-Z]+')
 
 # Fit Train:
 trainSamplesVectorized = wordVectorizer.fit_transform(trainDocuments)
@@ -276,21 +297,28 @@ testLabels = np.asarray(testDataset.iloc[:, 0:1].values.tolist())
 # of a column for its class labels:
 trainingLabels = np.ravel(trainingLabels)
 testLabels = np.ravel(testLabels)
-
+#
 print("---- Creating and Fitting SVM  -----------------------------")
 # Classification via SVM:
 # Train the SVM
-# SVM hyperparameters: C = 0.8 with linear kernel:
-svmModel = svm.SVC(C=2.0, kernel="linear")
+svmModel = svm.SVC(C=8.0, kernel="rbf")
 svmModel.fit(trainingFeatures, trainingLabels)
 
-print("---- Cross Validating SVM  ---------------------------------")
 # Evaluate SVM using cross validation, use 5 folds:
-cvFolds = 5
-svmAccuracy = cross_val_score(estimator=svmModel, X=trainingFeatures, y=trainingLabels, cv=cvFolds, n_jobs=-1)
-# Accuracy for each fold:
-print(svmAccuracy)
+if crossValidateModel:
+    print("---- Cross Validating SVM  ---------------------------------")
+    cvFolds = 5
+    svmAccuracy = cross_val_score(estimator=svmModel, X=trainingFeatures, y=trainingLabels, cv=cvFolds, n_jobs=-1)
+    # Accuracy for each fold:
+    print(svmAccuracy)
 
+# Save SVM model to disk
+if saveModel:
+    modelPath = projectPath + modelName
+    print("Saving SVM model to: ", projectPath + modelName)
+    pickle.dump(svmModel, open(modelPath, "wb"))
+
+print("---- Testing SVM  ---------------------------------")
 # Test the SVM:
 svmPredictions = svmModel.predict(testFeatures)
 print(svmModel.score(testFeatures, testLabels))
@@ -301,10 +329,28 @@ disp = ConfusionMatrixDisplay(confusion_matrix=confusionMatrix, display_labels=s
 disp.plot()
 plt.show()
 
+print("---- Classifying New Sample ---------------------------------")
+# Classify a new document:
+newSample = ["Winn Law group continues to pursue me on a debt that was charged off in XX/XX/2011.I have asked them to stop "
+             "calling me & harassing me so now they have threatened to file a judgement against me and continue with collection "
+             "efforts. I have let them know that California state law prohibits them from collection activity after 4 years."]
+
+# Vectorize new sample:
+newSample = wordFilter(newSample, filteredWords)
+newSampleVectorized = wordVectorizer.transform(newSample)
+newSampleVectorized = pd.DataFrame(newSampleVectorized.toarray(), columns=wordVectorizer.get_feature_names_out())
+# Dataframe to numpy array:
+newSampleVectorized = newSampleVectorized.to_numpy()
+
+# Get new class:
+newSampleClass = svmModel.predict(newSampleVectorized)
+print("According to the SVM, the class is: ", classesDict[newSampleClass[0]])
+
 # print("---- Running Search Grid  ---------------------------------")
 # # Hyperparameter optimization using Grid Search:
 # parameters = {"kernel": ("linear", "rbf"), "C": (1, 4, 8, 16, 32)}
-# svm = svm.SVC()# optimizedSVM = GridSearchCV(svm, parameters, cv=5, n_jobs=-1)
+# svm = svm.SVC()
+# optimizedSVM = GridSearchCV(svm, parameters, cv=5, n_jobs=-1)
 # optimizedSVM.fit(trainingFeatures, trainingLabels)
 #
 # # Print hyperparameters & accuracy:
