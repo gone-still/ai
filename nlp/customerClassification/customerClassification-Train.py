@@ -1,34 +1,43 @@
 # File        :   customerClassification-Train.py
-# Version     :   1.0.0
+# Version     :   1.0.1
 # Description :   [Train + Test]
 #                 An unpaid "challenge" from company X to apply NLP techniques
 #                 to classify customer requests into products. The shitty dataset has
 #                 already been pre-processed with Weka's CfsSubsetEval to drop the
 #                 meaningless features and reduce dimensionality.
 
-# Date:       :   Apr 07, 2023
+# Date:       :   Apr 08, 2023
 # Author      :   Ricardo Acevedo-Avila
 # License     :   Creative Commons CC0
 
 
 import pandas as pd
 import re
+
 import matplotlib.pyplot as plt
 import numpy as np
+
 from collections import Counter
+
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
+
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize.toktok import ToktokTokenizer
+
 from sklearn import svm
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.model_selection import GridSearchCV
 from sklearn.utils import resample
+
 import pickle
 
 
 # Applies basic word and character filtering to
 # a document:
-def wordFilter(inputDocuments, filteredWords):
+def wordFilter(inputDocuments, tokenizer, stopwordList):
     # Word filter:
     # All strings to lowercase, removes punctuation, removes "xxxxx" and
     # removes more than one whitespaces in messages:
@@ -39,9 +48,14 @@ def wordFilter(inputDocuments, filteredWords):
         currentMessage = re.sub(r"[^\w\s]", '', currentMessage)
 
         # Apply filter word. Replaces targets with empty string:
-        for f in range(len(filteredWords)):
-            targetWord = filteredWords[f]
-            currentMessage = currentMessage.replace(targetWord, " ")
+        # for f in range(len(filteredWords)):
+        #    targetWord = filteredWords[f]
+        #    currentMessage = currentMessage.replace(targetWord, " ")
+
+        tokens = tokenizer.tokenize(currentMessage)
+        tokens = [token.strip() for token in tokens]
+        filteredTokens = [token for token in tokens if token not in stopwordList]
+        currentMessage = ' '.join(filteredTokens)
 
         # Removes more than one whitespace character:
         currentMessage = re.sub(r"\s\s+", " ", currentMessage)
@@ -194,12 +208,12 @@ def encodeDocumentsPrepareDataset(datasetList, wordVectorizer):
 
 # Scrip flags:
 fullFeatures = False
-saveModel = False
+saveModel = True
 crossValidateModel = False
-parallelJobs = 4
-saveVocabulary = False
-saveClassDictionary = False
-saveVectorizer = False
+parallelJobs = 5
+saveVocabulary = True
+saveClassDictionary = True
+saveVectorizer = True
 
 # Project Path:
 projectPath = "D://dataSets//nlp-case//"
@@ -331,11 +345,20 @@ if fullFeatures:
 print("[INFO] --- Processing Dataset Documents...")
 # print(datasetDocuments)
 
-# Apply the word filter before message vectorization:
-filteredWords = ["xxxx", " i ", "i ", " us ", " we ", " am ", "hello", "please", "bye", "company", "husband", "wife"]
-
 print("[INFO] --- Filtering Dataset Documents...")
-datasetDocuments = wordFilter(datasetDocuments, filteredWords)
+
+# Download the stop words list:
+nltk.download("stopwords")
+# Tokenization of text
+tokenizer = ToktokTokenizer()
+# Setting English stopwords
+stopwordList = nltk.corpus.stopwords.words("english")
+# Add some custom words:
+stopwordList.append("xxxx")
+stopwordList.append("company")
+
+# Apply the word filter before message vectorization:
+datasetDocuments = wordFilter(datasetDocuments, tokenizer, stopwordList)
 
 # List to dataframe:
 datasetDocuments = pd.DataFrame({"consumer-message": datasetDocuments})
@@ -360,14 +383,14 @@ else:
 
 # Dataset division, training: 80% testing: 20%
 print("[INFO] --- Splitting Complete Dataset...")
-trainDataset, testDataset = train_test_split(completeDataset, test_size=0.20, random_state=42069)
+trainDataset, testDataset = train_test_split(completeDataset, test_size=0.15, random_state=42069)
 
 # Document encoding:
 print("[INFO] --- Performing Document Encoding...")
 
 # Use bag of words to vectorize each sample.
 # Create and set the word vectorizer:
-wordVectorizer = TfidfVectorizer(min_df=0.03, max_df=0.95, token_pattern=r'[a-zA-Z]+')
+wordVectorizer = TfidfVectorizer(min_df=0.01, max_df=1.0, token_pattern=r'[a-zA-Z]+')
 
 # Prepare the data structures:
 datasetList = [trainDataset, testDataset]
@@ -446,7 +469,7 @@ newSample = ["I obtained my free annual credit report online on XX/XX/2017. As o
              "to do so, no matter what computer I used."]
 
 # Vectorize new sample:
-newSample = wordFilter(newSample, filteredWords)
+newSample = wordFilter(newSample, tokenizer, stopwordList)
 newSampleVectorized = wordVectorizer.transform(newSample)
 newSampleVectorized = pd.DataFrame(newSampleVectorized.toarray(), columns=wordVectorizer.get_feature_names_out())
 
@@ -455,7 +478,7 @@ newSampleVectorized = newSampleVectorized.to_numpy()
 
 # Get new class:
 newSampleClass = svmModel.predict(newSampleVectorized)
-print(" According to the SVM, the class is: "+str(newSampleClass[0])+": "+classesDict[newSampleClass[0]])
+print(" According to the SVM, the class is: " + str(newSampleClass[0]) + ": " + classesDict[newSampleClass[0]])
 
 # print("[INFO] --- Running Grid Search...")
 # # Hyperparameter optimization using Grid Search:
