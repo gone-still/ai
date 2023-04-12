@@ -1,12 +1,12 @@
 # File        :   customerClassification-Test.py
-# Version     :   1.0.1
+# Version     :   1.1.0
 # Description :   [Stand-Alone Test]
 #                 An unpaid "challenge" from company X to apply NLP techniques
 #                 to classify customer requests into products. The shitty dataset has
 #                 already been pre-processed with Weka's CfsSubsetEval to drop the
 #                 meaningless features and reduce dimensionality.
 
-# Date:       :   Apr 08, 2023
+# Date:       :   Apr 12, 2023
 # Author      :   Ricardo Acevedo-Avila
 # License     :   Creative Commons CC0
 
@@ -36,10 +36,15 @@ def wordFilter(inputDocuments, tokenizer, stopwordList):
         # Regex to remove punctuation:
         currentMessage = re.sub(r"[^\w\s]", '', currentMessage)
 
+        # Removes XXX prefix:
+        currentMessage = re.sub(r'^{0}'.format(re.escape("xxxx")), '', currentMessage)
+
+        # Removes numbers:
+        currentMessage = re.sub(" \d+", " ", currentMessage)
+
         # Apply filter word. Replaces targets with empty string:
-        # for f in range(len(filteredWords)):
-        #    targetWord = filteredWords[f]
-        #    currentMessage = currentMessage.replace(targetWord, " ")
+        # for word in stopwordList:
+        #     currentMessage = re.sub(r'\b%s\b' % word, '', currentMessage)
 
         tokens = tokenizer.tokenize(currentMessage)
         tokens = [token.strip() for token in tokens]
@@ -57,6 +62,8 @@ def wordFilter(inputDocuments, tokenizer, stopwordList):
 
 # Project Path:
 projectPath = "D://dataSets//nlp-case//"
+
+downloadStopword = False
 
 # File Names:
 modelName = "customerClassifier-SVM.sav"
@@ -92,46 +99,45 @@ for i, key in enumerate(classesDict):
 # Classify a new document:
 print("[INFO] --- Classifying New Sample")
 
-newSample = ["My mortgage was sold in XX/XX/XXXX from XXXX to Specialized Loan Servicing LLC ( SLS ). I contacted SLS "
-             "regarding an application for a loan modification due to some unforeseen circumstances that had happened "
-             "regarding my home. They mailed me out an application and I also printed one from their online website. I "
-             "contacted them regarding how I should return the application. The lady said I could mail it to the "
-             "address on the application, email it to the address on the application, or fax it to the number on the "
-             "application. Since I had pictures to attach to the application I decided it would be best just to send "
-             "it via email. The email address they gave was XXXXXXXXXXXX. Every time I sent an email I got a "
-             "confirmation email back saying my documents were received and waiting to be processed. Starting on "
-             "XX/XX/XXXX, I started receiving calls from SLS 's main number XXXX the caller identified herself on my "
-             "voice mail as XXXX XXXX with the underwriting department at Specialized Loan Servicing. After a few days"
-             " of phone tag, we were finally able to touch base. I spoke with XXXX on XX/XX/XXXX and she was wanting to "
-             "discuss my modification approval for a HAMP modification. She also said the paperwork had been mailed out "
-             "but since I had n't gotten it she would email it to me and that I would n't be able to open the email "
-             "without a code and the code would be my social security number. She said this was for my protection. "
-             "I received the paperwork and looked it over. The loan number on the paperwork was mine, the amounts "
-             "added up, the phone numbers were to SLS so everything seemed legit especially since the only people who "
-             "have my loan number were me and SLS. Remember loan numbers are NOT public information. I signed the "
-             "document and sent it back to SLS 's email at XXXXXXXXXXXX and got a confirmation email back saying it was "
-             "received and being processed. I also made 2 payments towards my trial period payments totaling {$1200.00}. "
-             "On XX/XX/XXXX, I received a call from SLS touching base to see how things were going and to let me know "
-             "they were missing some documents to finish up a loan modification. I told him I always spoke with XXXX, "
-             "he said that XXXX worked out of their XXXX office and it was only by chance that I always got her. "
-             "I explained I had already signed a modification agreement with them that XXXX had sent me and made 2 of "
-             "my three trial period payments. He looked at the agreement ( 6 days after they received it ) and told me "
-             "it was n't something they had sent me. Then tells me the numbers on the agreement were n't to SLS he said "
-             "that the number for where my loan was at was XXXX. Obviously, XXXX did n't have very good XXXX because "
-             "that is the exact number that was on my papers. I have made a report with my local sheriff 's office,"
-             " the white collar crimes division of the FBI, and the fraud department with HAMP."]
+newSample = [
+    "  I had this credit card that was closed and paid as agreed in XX/XX/XXXX. Citibank. In XX/XX/XXXX, they sued me "
+    "after reopening without my knowledge and doubles the amount owed with fees. When I called them they say they are "
+    "not the one suing me, the card was sold to / Assignments rights given to Citi XXXX in XXXX and no longer owned"
+    " by them. They could not even find it in their system. I ended up speaking to a XXXX in their recorders section "
+    "in NY, that told me all lawsuit records are processed through her, and they Citibank is not the Plaintiff where "
+    "my cases is concerned. When they, and also I did call Citi XXXX, we got the same recording that the account is "
+    "handled by a outside vendor, etc .... the 3rd party vendor is the attorney firm that bought it. They have been "
+    "suing me since XXXX, and this is causing XXXX and financial hardship on me an my family. My XXXX is extremely "
+    "high, my doctor can even XXXX it, because I 'm constantly under this XXXX.I have paid over {$4000.00} so far, "
+    "and still owe the attorney over {$4000.00}. XXXX have paid them too, just about the same amount of money and "
+    "I really do n't know what my attorney office is doing. They keep passing the case around the office to their"
+    " different attorneys and redoing all request afresh as a new case. They have all the evidence they the attorney "
+    "firm suing is fraudlently using citibank from day one, and will do nothing about it. Now after 8 years of suing, "
+    "and about 10 years since the card is closed, I was just told by my firm we are going to court for a trial and "
+    "they, my attorney firm are withdrawing. After over {$10000.00} in fees and proof they are fraudulent, they want "
+    "to withdraw? HELP, HELP."]
 
 # Vectorize new sample:
+if downloadStopword:
+    # Download the stop words list:
+    nltk.download("stopwords")
 
-# Download the stop words list:
-nltk.download("stopwords")
 # Tokenization of text
 tokenizer = ToktokTokenizer()
 # Setting English stopwords
 stopwordList = nltk.corpus.stopwords.words("english")
 # Add some custom words:
-stopwordList.append("xxxx")
-stopwordList.append("company")
+targetWords = ["xxxx", "xxxxxxxx", "xxxxxxxxxxxx", "company", "would", "told", "nt", "said", "could", "made", "still",
+               "get", "since", "make", "help", "us", "please", "name", "going", "know", "name", "like", "customer",
+               "one", "never", "take", "able", "also", "address", "stated", "new", "went", "need", "send", "time",
+               "want", "got", "first", "husband", "wife", "see", "without", "last", "go", "however", "tried", "car",
+               "took", "signed", "well", "way", "account", "accounts", "spoke", "put", "use", "give", "someone",
+               "trying", "via", "thank", "though", "mine", "ask", "feel", "say", "per", "keep", "yet", "saying", "ca"]
+
+# Add custom words to stopword list:
+stopwordList.extend(targetWords)
+
+print(" Stop Word List Length: " + str(len(stopwordList)))
 
 newSample = wordFilter(newSample, tokenizer, stopwordList)
 newSampleVectorized = wordVectorizer.transform(newSample)

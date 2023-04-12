@@ -1,12 +1,12 @@
 # File        :   customerClassification-Train.py
-# Version     :   1.0.1
+# Version     :   1.1.0
 # Description :   [Train + Test]
 #                 An unpaid "challenge" from company X to apply NLP techniques
 #                 to classify customer requests into products. The shitty dataset has
 #                 already been pre-processed with Weka's CfsSubsetEval to drop the
 #                 meaningless features and reduce dimensionality.
 
-# Date:       :   Apr 08, 2023
+# Date:       :   Apr 12, 2023
 # Author      :   Ricardo Acevedo-Avila
 # License     :   Creative Commons CC0
 
@@ -32,6 +32,8 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.model_selection import GridSearchCV
 from sklearn.utils import resample
 
+import seaborn as sns
+
 import pickle
 
 
@@ -47,10 +49,15 @@ def wordFilter(inputDocuments, tokenizer, stopwordList):
         # Regex to remove punctuation:
         currentMessage = re.sub(r"[^\w\s]", '', currentMessage)
 
+        # Removes XXX prefix:
+        currentMessage = re.sub(r'^{0}'.format(re.escape("xxxx")), '', currentMessage)
+
+        # Removes numbers:
+        currentMessage = re.sub(" \d+", " ", currentMessage)
+
         # Apply filter word. Replaces targets with empty string:
-        # for f in range(len(filteredWords)):
-        #    targetWord = filteredWords[f]
-        #    currentMessage = currentMessage.replace(targetWord, " ")
+        # for word in stopwordList:
+        #     currentMessage = re.sub(r'\b%s\b' % word, '', currentMessage)
 
         tokens = tokenizer.tokenize(currentMessage)
         tokens = [token.strip() for token in tokens]
@@ -69,6 +76,7 @@ def wordFilter(inputDocuments, tokenizer, stopwordList):
 # Performs dataset resampling:
 def datasetResampling(inputDataset, downsampleSize):
     print(" datasetResampling>> Original Dataset shape: ", inputDataset.shape)
+    print(" datasetResampling>> Resampling to: " + str(downsampleSize) + " samples per class.")
 
     tempDataset = pd.DataFrame()
 
@@ -94,7 +102,7 @@ def datasetResampling(inputDataset, downsampleSize):
 
     # Shuffle samples and reset indices:
     tempDataset = tempDataset.sample(frac=1).reset_index(drop=True)
-    print(" datasetResampling>> Resampled Dataset shape: ", tempDataset.shape)
+    print(" datasetResampling>> Resampled Dataset shape (reshuffled): ", tempDataset.shape)
 
     # Done:
     return tempDataset
@@ -206,11 +214,17 @@ def encodeDocumentsPrepareDataset(datasetList, wordVectorizer):
     return outDatasets
 
 
-# Scrip flags:
+# Script flags:
+samplingFactor = 0.9
+downloadStopword = False
+
 fullFeatures = False
 saveModel = True
-crossValidateModel = False
+
+crossValidateModel = True
 parallelJobs = 5
+runGridSearch = False
+
 saveVocabulary = True
 saveClassDictionary = True
 saveVectorizer = True
@@ -237,7 +251,10 @@ print("[INFO] --- Dataset 5 First Samples:")
 print(inputDataset.head())
 
 # Drop missing values:
-inputDataset = inputDataset.dropna(axis=0)
+print("[INFO] --- Columns with missing data:")
+print(inputDataset.isnull().sum())
+# inputDataset = inputDataset.dropna(axis=0)
+print(inputDataset.isnull().sum())
 
 print("[INFO] --- Dataset 5 First Samples (Dropped Missing Values):")
 print(inputDataset.head())
@@ -281,13 +298,14 @@ datasetMedian = np.median(classCounts)
 
 # Loop through the classes dictionary and
 # encode each class label as a number:
-downsampleSize = 0.9 * datasetMedian
+downsampleSize = samplingFactor * datasetMedian
 downsampleSize = int(downsampleSize)
 
 # Perform the dataset resampling:
 print("[INFO] --- Resampling Dataset...")
 
 # Reshuffle:
+print(" Shuffling Dataset...")
 inputDataset = inputDataset.sample(frac=1).reset_index(drop=True)
 # Get resampled Dataset:
 inputDataset = datasetResampling(inputDataset, downsampleSize)
@@ -348,17 +366,39 @@ print("[INFO] --- Processing Dataset Documents...")
 print("[INFO] --- Filtering Dataset Documents...")
 
 # Download the stop words list:
-nltk.download("stopwords")
+if downloadStopword:
+    nltk.download("stopwords")
 # Tokenization of text
 tokenizer = ToktokTokenizer()
 # Setting English stopwords
 stopwordList = nltk.corpus.stopwords.words("english")
 # Add some custom words:
-stopwordList.append("xxxx")
-stopwordList.append("company")
+targetWords = ["xxxx", "xxxxxxxx", "xxxxxxxxxxxx", "company", "would", "told", "nt", "said", "could", "made", "still",
+               "get", "since", "make", "help", "us", "please", "name", "going", "know", "name", "like", "customer",
+               "one", "never", "take", "able", "also", "address", "stated", "new", "went", "need", "send", "time",
+               "want", "got", "first", "husband", "wife", "see", "without", "last", "go", "however", "tried", "car",
+               "took", "signed", "well", "way", "account", "accounts", "spoke", "put", "use", "give", "someone",
+               "trying", "via", "thank", "though", "mine", "ask", "feel", "say", "per", "keep", "yet", "saying", "ca"]
+
+# Add custom words to stopword list:
+stopwordList.extend(targetWords)
+
+print(" Stop Word List Length: " + str(len(stopwordList)))
 
 # Apply the word filter before message vectorization:
 datasetDocuments = wordFilter(datasetDocuments, tokenizer, stopwordList)
+
+# Get word frequency:
+wordsList = []
+for line in datasetDocuments:
+    words = line.split()
+    for word in words:
+        wordsList.append(word)
+
+# Show word frequency:
+sns.set_style('darkgrid')
+nlp_words = nltk.FreqDist(wordsList)
+nlp_words.plot(50)
 
 # List to dataframe:
 datasetDocuments = pd.DataFrame({"consumer-message": datasetDocuments})
@@ -383,14 +423,14 @@ else:
 
 # Dataset division, training: 80% testing: 20%
 print("[INFO] --- Splitting Complete Dataset...")
-trainDataset, testDataset = train_test_split(completeDataset, test_size=0.15, random_state=42069)
+trainDataset, testDataset = train_test_split(completeDataset, test_size=0.20, random_state=42069)
 
 # Document encoding:
 print("[INFO] --- Performing Document Encoding...")
 
 # Use bag of words to vectorize each sample.
 # Create and set the word vectorizer:
-wordVectorizer = TfidfVectorizer(min_df=0.01, max_df=1.0, token_pattern=r'[a-zA-Z]+')
+wordVectorizer = TfidfVectorizer(min_df=0.01, max_df=1.0, token_pattern=r'[a-zA-Z]+', sublinear_tf=True)
 
 # Prepare the data structures:
 datasetList = [trainDataset, testDataset]
@@ -401,7 +441,7 @@ outDatasets = encodeDocumentsPrepareDataset(datasetList, wordVectorizer)
 # Classification via SVM:
 # Train the SVM
 print("[INFO] --- Creating and Fitting SVM...")
-svmModel = svm.SVC(C=8.0, kernel="rbf")
+svmModel = svm.SVC(C=4.0, kernel="rbf")
 
 # Get the training Dataset:
 trainingFeatures = outDatasets[0][0]
@@ -480,16 +520,19 @@ newSampleVectorized = newSampleVectorized.to_numpy()
 newSampleClass = svmModel.predict(newSampleVectorized)
 print(" According to the SVM, the class is: " + str(newSampleClass[0]) + ": " + classesDict[newSampleClass[0]])
 
-# print("[INFO] --- Running Grid Search...")
-# # Hyperparameter optimization using Grid Search:
-# parameters = {"kernel": ("linear", "rbf"), "C": (1, 4, 8, 16, 32)}
-# svm = svm.SVC()
-# optimizedSVM = GridSearchCV(svm, parameters, cv=5, n_jobs=-1)
-# optimizedSVM.fit(trainingFeatures, trainingLabels)
-#
-# # Print hyperparameters & accuracy:
-# print(optimizedSVM.best_params_)
-# svmAccuracy = cross_val_score(estimator=svmModel, X=trainingFeatures, y=trainingLabels, cv=cvFolds,
-#                                   n_jobs=parallelJobs, verbose=3)
-# # Accuracy for each fold:
-# print(svmAccuracy)
+if runGridSearch:
+
+    print("[INFO] --- Running Grid Search...")
+    # Hyperparameter optimization using Grid Search:
+    parameters = {"kernel": ("linear", "rbf"), "C": (2, 4, 8, 16)}
+    svm = svm.SVC()
+    optimizedSVM = GridSearchCV(svm, parameters, cv=5, n_jobs=parallelJobs)
+    optimizedSVM.fit(trainingFeatures, trainingLabels)
+
+    # Print hyperparameters & accuracy:
+    print(optimizedSVM.best_params_)
+    if crossValidateModel:
+        svmAccuracy = cross_val_score(estimator=svmModel, X=trainingFeatures, y=trainingLabels, cv=cvFolds,
+                                      n_jobs=parallelJobs, verbose=3)
+        # Accuracy for each fold:
+        print(svmAccuracy)
