@@ -1,12 +1,12 @@
 # File        :   customerClassification-Train.py
-# Version     :   1.1.0
+# Version     :   1.1.1
 # Description :   [Train + Test]
 #                 An unpaid "challenge" from company X to apply NLP techniques
 #                 to classify customer requests into products. The shitty dataset has
 #                 already been pre-processed with Weka's CfsSubsetEval to drop the
 #                 meaningless features and reduce dimensionality.
 
-# Date:       :   Apr 12, 2023
+# Date:       :   Apr 13, 2023
 # Author      :   Ricardo Acevedo-Avila
 # License     :   Creative Commons CC0
 
@@ -228,6 +228,8 @@ runGridSearch = False
 saveVocabulary = True
 saveClassDictionary = True
 saveVectorizer = True
+
+cvFolds = 5
 
 # Project Path:
 projectPath = "D://dataSets//nlp-case//"
@@ -452,7 +454,6 @@ svmModel.fit(trainingFeatures, trainingLabels)
 # Evaluate SVM using cross validation, use 5 folds:
 if crossValidateModel:
     print("[INFO] --- Cross-Validating SVM...")
-    cvFolds = 5
     svmAccuracy = cross_val_score(estimator=svmModel, X=trainingFeatures, y=trainingLabels, cv=cvFolds,
                                   n_jobs=parallelJobs, verbose=3)
     # Accuracy for each fold:
