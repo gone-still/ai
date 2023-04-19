@@ -1,4 +1,4 @@
-# File        :   maskReggresion.py
+# File        :   maskReggression.py
 # Version     :   1.0.0
 # Description :   [Train + Test]
 #                 Logistic reggression example for "Mask Data" custom dataset.
