@@ -178,7 +178,7 @@ plt.legend(loc=4)
 plt.show()
 
 # Optimal probability threshold according to the ROC curve
-# Both classes unweighted. If proba >= 1 -> outClass = 1, else: outClass = 0
+# Both classes unweighted. If proba >= probabilityThreshold -> outClass = 1, else: outClass = 0
 probabilityThreshold = sorted(list(zip(np.abs(tpr - fpr), proba)), key=lambda i: i[0], reverse=True)[0][1]
 print("[INFO] --- Probability Threshold: " + "{:.4f}".format(probabilityThreshold))
 
