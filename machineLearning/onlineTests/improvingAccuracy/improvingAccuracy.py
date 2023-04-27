@@ -1,4 +1,4 @@
-# File        :   testAnswer.py
+# File        :   improvingAccuracy.py
 # Version     :   1.0.0
 # Description :   Solution to one of c0d1l1ty's Data Science "test"
 #
