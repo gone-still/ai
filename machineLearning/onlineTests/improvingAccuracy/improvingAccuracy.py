@@ -1,8 +1,8 @@
 # File        :   testAnswer.py
-# Version     :   1.5.0
+# Version     :   1.5.2
 # Description :   Solution to one of c0d1l1ty's Data Science "test"
 #
-# Date:       :   Apr 26, 2023
+# Date:       :   Apr 27, 2023
 # Author      :   Mr. X
 # License     :   Creative Commons CC0
 
@@ -12,12 +12,15 @@
 # The data contains 7500 samples with 300 features. The feature
 # names are not important. There are no missing values.
 
+
 import numpy as np
 import pandas as pd
 
 from sklearn import metrics
 
 from imblearn.pipeline import make_pipeline
+from imblearn.over_sampling import RandomOverSampler
+
 from sklearn.svm import LinearSVC
 
 from sklearn.preprocessing import StandardScaler
@@ -25,7 +28,20 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.model_selection import cross_val_score
 
 from collections import Counter
-from sklearn.utils import resample
+
+
+# Prints the class distribution of
+# a dataset:
+def checkClassDistribution(dataset, targetFeature):
+    classLabels = df_train[targetFeature]
+    classCounter = Counter(classLabels)
+
+    # Print the class distribution:
+    for c in classCounter:
+        value = classCounter[c]
+        print("Class: ", c, " Count: ", value)
+
+    print("Total Samples: ", dataset.shape)
 
 
 class ClassifierWithImbalanceClass:
@@ -35,15 +51,24 @@ class ClassifierWithImbalanceClass:
         # Typically linear algorithms, such as linear regression and logistic regression, respond well
         # to the use of polynomial input variables.
         # StandardScaler to normalize features
-        self._pipeline = make_pipeline(PolynomialFeatures(degree=2), StandardScaler(),
+        self._pipeline = make_pipeline(PolynomialFeatures(degree=2),
+                                       StandardScaler(),
                                        LinearSVC(C=1, random_state=42, dual=False))
 
+        # Also, an oversampler can be implemented directly in the pipe to balance the dataset out:
+        # self._pipeline = make_pipeline(RandomOverSampler(sampling_strategy="minority", random_state=42),
+        #                                PolynomialFeatures(degree=2),
+        #                                StandardScaler(),
+        #                                LinearSVC(C=1, random_state=42, dual=False))
+
     def train(self, x, y):
+        print("Training...")
         # Fit the pipeline:
         self._pipeline.fit(x, y)
         pass
 
     def predict(self, x):
+        print("Testing...")
         # Return the test predictions:
         classPredictions = self._pipeline.predict(x)
         return classPredictions
@@ -61,47 +86,29 @@ projectPath = "D://dataSets//code//"
 trainDataset = "train_data.csv"
 testDataset = "test_data.csv"
 
-# Prediction label:
-predictionLabel = "classType"
-
 # Read the CSV Dataset:
 df_train = pd.read_csv(projectPath + trainDataset)
+
+# Check out the class distribution:
+print("Dataset class distribution [Not Balanced]")
+checkClassDistribution(df_train, "target")
+
+# Get the training features and target feature/predicting label:
 y_train = df_train["target"]
+X_train = df_train.drop("target", axis=1)
 
-# Check out the class distribution
-classLabels = df_train["target"]
-classCounter = Counter(classLabels)
+# Resample. Balance the dataset oversampling the minority class:
+ros = RandomOverSampler(sampling_strategy="minority", random_state=42)
+X_resampled, y_resampled = ros.fit_resample(X_train, y_train)
 
-# Print the class distribution:
-for c in classCounter:
-    value = classCounter[c]
-    print("[Unbalanced] Class: ", c, " Count: ", value)
+# Predicting feature is a series, convert it to a dataframe:
+y_resampled = y_resampled.to_frame()
+# Create the full, oversampled, dataset:
+df_train = pd.concat([X_resampled, y_resampled], axis=1)
 
-# Set count of majority class:
-# Majority class is 0
-maxClassCount = int(classCounter[0] * 1.0)
-
-# Set the minority class to a separate dataframe:
-dfMinority = df_train[df_train["target"] == 1]
-# Set other classes to another dataframe:
-dfMajority = df_train[df_train["target"] != 1]
-
-# Up-sample the minority class:
-minorityUpscaled = resample(dfMinority, random_state=42, n_samples=maxClassCount, replace=True)
-
-# Concatenate the up-sampled dataframe. Now
-# the dataset should be balanced:
-df_train = pd.concat([minorityUpscaled, dfMajority])
-print(df_train.shape)
-
-# Check out the new class distribution
-classLabels = df_train["target"]
-classCounter = Counter(classLabels)
-
-# Print the class distribution:
-for c in classCounter:
-    value = classCounter[c]
-    print("[Balanced] Class: ", c, " Count: ", value)
+# Check out the class distribution:
+print("Dataset class distribution [Balanced]")
+checkClassDistribution(df_train, "target")
 
 # Get training features and label:
 y_train = df_train["target"]
@@ -134,7 +141,7 @@ cvFolds = 5
 # Cross-validation parallel jobs (1 per core):
 parallelJobs = 5
 
-# Check out the reggressor accuracy using cross-validation:
+# Check out the classifier accuracy using cross-validation:
 classifierAccuracy = cross_val_score(estimator=modelPipeline, X=X_train, y=y_train, cv=cvFolds,
                                      n_jobs=parallelJobs, verbose=3)
 
