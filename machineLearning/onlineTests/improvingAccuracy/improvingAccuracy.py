@@ -1,6 +1,6 @@
 # File        :   testAnswer.py
 # Version     :   1.5.2
-# Description :   Solution to one of c0d1l1ty's Data Science "test"
+# Description :   Solution to an online Data Science "test"
 #
 # Date:       :   Apr 27, 2023
 # Author      :   Mr. X
