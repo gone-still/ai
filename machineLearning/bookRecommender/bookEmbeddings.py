@@ -29,13 +29,11 @@ class booknet:
 
         # Embedding the book (shape will be (None, 1, 50))
         book_embedding = Embedding(name="book_embedding", input_dim=book_embedding_input_len,
-                                   output_dim=embedding_size)(
-            book)
+                                   output_dim=embedding_size)(book)
 
         # Embedding the link (shape will be (None, 1, 50))
         link_embedding = Embedding(name="link_embedding", input_dim=link_embedding_input_len,
-                                   output_dim=embedding_size)(
-            link)
+                                   output_dim=embedding_size)(link)
 
         # Merge the layers with a dot product along the second axis (shape will be (None, 1, 1))
         merged = Dot(name="dot_product", normalize=True, axes=2)([book_embedding, link_embedding])
