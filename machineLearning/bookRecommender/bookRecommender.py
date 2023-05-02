@@ -1,9 +1,9 @@
 # File        :   bookRecommender.py
-# Version     :   1.0.0
+# Version     :   1.1.0
 # Description :   Script that implements a book recommendation system
 #                 based on: https://github.com/WillKoehrsen/wikipedia-data-science/blob/master/notebooks/
 #                 Book%20Recommendation%20System.ipynb
-# Date:       :   Apr 30, 2023
+# Date:       :   May 01, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -14,14 +14,8 @@ import json
 from itertools import chain
 from collections import Counter, OrderedDict
 
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input
-from tensorflow.keras.layers import Embedding
-from tensorflow.keras.layers import Dot
-from tensorflow.keras.layers import Reshape
-from tensorflow.keras.layers import Dense
-
 from tensorflow.keras.models import load_model
+from bookEmbeddings import booknet
 
 import matplotlib.pyplot as plt
 
@@ -90,44 +84,6 @@ def generate_batch(pairs, n_positive=50, negative_ratio=1.0, classification=Fals
         yield {'book': batch[:, 0], 'link': batch[:, 1]}, batch[:, 2]
 
 
-# RNN Model to embed books and wikilinks using the functional API.
-# Trained to discern if a link is present in an article:
-
-def book_embedding_model(embedding_size=50, book_embedding_input_len=1, link_embedding_input_len=1,
-                         classification=False):
-    # Both inputs are 1-dimensional
-    book = Input(name="book", shape=[1])
-    link = Input(name="link", shape=[1])
-
-    # Embedding the book (shape will be (None, 1, 50))
-    book_embedding = Embedding(name="book_embedding", input_dim=book_embedding_input_len, output_dim=embedding_size)(
-        book)
-
-    # Embedding the link (shape will be (None, 1, 50))
-    link_embedding = Embedding(name="link_embedding", input_dim=link_embedding_input_len, output_dim=embedding_size)(
-        link)
-
-    # Merge the layers with a dot product along the second axis (shape will be (None, 1, 1))
-    merged = Dot(name="dot_product", normalize=True, axes=2)([book_embedding, link_embedding])
-
-    # Reshape to be a single number (shape will be (None, 1))
-    merged = Reshape(target_shape=[1])(merged)
-    # print(merged)
-
-    # If classification, add extra layer and loss function is binary cross entropy
-    if classification:
-        merged = Dense(1, activation="sigmoid")(merged)
-        model = Model(inputs=[book, link], outputs=merged)
-        model.compile(optimizer="Adam", loss="binary_crossentropy", metrics=["accuracy"])
-
-    # Otherwise loss function is mean squared error
-    else:
-        model = Model(inputs=[book, link], outputs=merged)
-        model.compile(optimizer="Adam", loss="mse")
-
-    return model
-
-
 # The function below takes in either a book or a link, a set of embeddings, and returns the n most similar items
 # to the query. It does this by computing the dot product between the query and embeddings.:
 
@@ -180,11 +136,20 @@ projectPath = "D://dataSets//books//"
 datasetFilename = "found_books_filtered.ndjson"
 modelFilename = "bookRecommender.model"
 
-# RNN options:
+# DNN options:
 loadModel = True
 saveModel = False
+
+# The DNN can model the problem as regression
+# or classification, if False, the problem is
+# classification:
+reggressionMode = False
+activationLayer = "softmax"
+
+trainingEpochs = 20
+
 # Learning rate factor:
-gamma = 1.0
+gamma = 2.0
 learningRate = gamma * 1e-3
 
 # Store the book dataset in this list.
@@ -437,26 +402,33 @@ for i, (label, b_idx, l_idx) in enumerate(zip(y, x["book"], x["link"])):
 if loadModel:
     # Get model path + name:
     modelPath = projectPath + modelFilename
-    print("[INFO] -- Loading RNN Model from: " + modelPath)
+    print("[INFO] -- Loading DNN Model from: " + modelPath)
     # Load model:
     model = load_model(modelPath)
     model.summary()
 else:
-    print("[INFO] -- Creating + Fitting RNN Model from scratch")
-    # Set up the RNN:
-    model = book_embedding_model(embedding_size=50, book_embedding_input_len=len(book_index),
-                                 link_embedding_input_len=len(link_index),
-                                 classification=False)
+    print("[INFO] -- Creating + Fitting DNN Model from scratch")
+
+    # Set up the DNN:
+    model = booknet.build(embedding_size=50, book_embedding_input_len=len(book_index),
+                          link_embedding_input_len=len(link_index), classification=reggressionMode,
+                          activationFunction=activationLayer,
+                          alpha=learningRate, epochs=trainingEpochs)
     model.summary()
+
+    # Print some debugging info:
+    if reggressionMode:
+        dnnMode = "Regression"
+    else:
+        dnnMode = "Classification"
+    print("[INFO] -- Mode: " + dnnMode + " Epochs: " + str(trainingEpochs) + " Learning Rate: " + str(
+        learningRate) + " Activation: " + activationLayer)
 
     # Set the samples generator:
     n_positive = 1024
-    gen = generate_batch(pairs, n_positive, negative_ratio=2)
+    gen = generate_batch(pairs, n_positive, negative_ratio=2, classification=reggressionMode)
 
-    # Train the RNN:
-    trainingEpochs = 20
-    # Deprecated:
-    # H = model.fit_generator(gen, epochs=trainingEpochs, steps_per_epoch=len(pairs) // n_positive, verbose=1)
+    # Train the DNN:
     H = model.fit(
         gen,
         steps_per_epoch=len(pairs) // n_positive,
@@ -510,7 +482,7 @@ book_weights = book_weights / books_norm
 
 # Find Similar Books, the function returns a list of tuples containing the n most/least similar
 # books, in the format (book title, book similarity):
-targetBook = "Skagboys"
+targetBook = "Trainspotting (novel)"
 totalSimilarBooks = 10
 leastSimilar = False
 similarBooks = find_similar(targetBook, book_weights, book_index, index_book, "book", totalSimilarBooks, leastSimilar)
