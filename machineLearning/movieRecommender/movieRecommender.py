@@ -1,15 +1,16 @@
 # File        :   movieRecommender.py
-# Version     :   0.0.8
+# Version     :   0.0.9
 # Description :   Script that implements a movie recommendation system based on genre keywords
 
-# Date:       :   May 06, 2023
+# Date:       :   May 08, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
+
 
 import pandas as pd
 import numpy as np
 import random
-from bookNet import booknet
+from bookNet import movieNet
 from tensorflow.keras.models import load_model
 
 from tensorflow.keras.utils import plot_model
@@ -17,8 +18,8 @@ import matplotlib.pyplot as plt
 
 
 # Returns True if an array is found in an array list:
-def is_arr_in_list(myarr, list_arrays):
-    return next((True for elem in list_arrays if elem is myarr), False)
+def isArrayInList(inputArray, arrayList):
+    return next((True for item in arrayList if item is inputArray), False)
 
 
 # Batch Generator:
@@ -96,8 +97,8 @@ def generateBatch(pairs, moviesDicts, genresDicts, moviesGenresDict, n_positive=
             # randomVector = pairs[0]
 
             # Check to make sure this is not a positive example
-            results = is_arr_in_list(randomVector, pairs)
-            if not (is_arr_in_list(randomVector, pairs)):
+            results = isArrayInList(randomVector, pairs)
+            if not (isArrayInList(randomVector, pairs)):
                 # Add to batch and increment index
                 batch[i][0:genresVectorLength + 1] = randomVector
                 batch[i][-1] = negLabel
@@ -122,10 +123,11 @@ datasetName = "imdb_movie_keyword_small.csv"
 modelFilename = "bookRecommender.model"
 
 # DNN Setup:
-classificationMode = True
+embeddingSize = (60, 60)
+classificationMode = False
 activationLayer = "softmax"
-trainingEpochs = 100
-gamma = 1.0
+trainingEpochs = 20
+gamma = 1.5
 learningRate = gamma * 1e-3
 
 # DNN options:
@@ -246,7 +248,7 @@ for movie in moviesDictionary:
 
 # Create pairs of real movie title + real (un ordered) genres:
 pairs = []
-totalPairs = 500
+totalPairs = 200
 
 random.seed(100)
 # Randomly sample a row from the encoded dataset:
@@ -319,9 +321,9 @@ else:
 
     # movies vocabulary length -> 100 [0, 99 (inclusive)] movies
     # genres vocabulary length -> 20 [0, 19 (inclusive)] genres
-    model = booknet.build(embeddingSize=50, movieDictionaryLength=len(moviesDictionary),
-                          genresDictionaryLength=len(genresDictionary) + 1, classification=classificationMode,
-                          activationFunction=activationLayer, alpha=learningRate, epochs=trainingEpochs)
+    model = movieNet.build(embeddingSize=embeddingSize, movieDictionaryLength=len(moviesDictionary),
+                           genresDictionaryLength=len(genresDictionary) + 1, classification=classificationMode,
+                           activationFunction=activationLayer, alpha=learningRate, epochs=trainingEpochs)
 
     model.summary()
 
@@ -387,9 +389,13 @@ print("[INFO] -- Movies Embeddings Shape: ")
 print(" ", moviesWeights.shape)
 
 # Get genres embedding from a genres query:
+genresQuery = ["Drama", "Crime"]
 totalQueryKeywords = columns
-genresQuery = ["Sci-Fi", "Drama"]
-genreEmbeddingsVector = []
+
+# Store the total sum of each keyword embedding here:
+genreEmbeddingsSum = 0
+
+# For each keyword/genre in the list, get its embedding:
 for g in range(totalQueryKeywords):
     # Get genre:
     if g < len(genresQuery):
@@ -402,50 +408,60 @@ for g in range(totalQueryKeywords):
 
     # Get embedding:
     genreWeight = genresWeights[genreCode]
-    # Add to list:
-    genreEmbeddingsVector.append(genreWeight)
+    # Accumulate-sum the embedding:
+    genreEmbeddingsSum = genreEmbeddingsSum + genreWeight
 
 # To numpy array:
-genreEmbeddingsVector = np.array(genreEmbeddingsVector)
+genreEmbeddingsVector = np.array(genreEmbeddingsSum)  # Shape should be (embeddingSize,)
+
 # Get embeddings shape:
 totalMovies = moviesWeights.shape[0]
-totalGenres = genreEmbeddingsVector.shape[0]
 
+# Compute dot product between the sum embeddings from the keywords/genres
+# and the movies embeddings (this could be vectorized)...
+# Store distances here:
 embeddingDistances = []
 for m in range(totalMovies):
+    # Get current movie embedding:
     currentMovie = moviesWeights[m]
-    tempList = []
-    for g in range(totalGenres):
-        currentGenre = genreEmbeddingsVector[g]
-        # Dot product:
-        currentDist = np.dot(currentMovie, currentGenre)
-        # Add to temp list:
-        tempList.append(currentDist)
-    print(tempList)
-    totalSum = sum(tempList)
-    embeddingDistances.append(totalSum)
+    # Dot product:
+    currentDist = np.dot(currentMovie, genreEmbeddingsVector)
+    # Add to temp list:
+    embeddingDistances.append(currentDist)
 
-maxDist = max(embeddingDistances)
-minDist = min(embeddingDistances)
-print((maxDist, minDist))
+# # Get max/min score of recommendations:
+# maxDist = max(embeddingDistances)
+# minDist = min(embeddingDistances)
+# print((maxDist, minDist))
+
+# Store the results here. They will be stored as
+# the tuple: (distance, movie title, keywords)
 resultsList = []
 
+# For all the dot-product produced distances:
 for d in range(len(embeddingDistances)):
+
+    # Get distance and decode movie title and keywords:
     currentDistance = embeddingDistances[d]
     movieTitle = moviesDictionaryReverse[d]
     movieGenres = moviesGenresDictionary[d]
+    # Concatenate all keywords in one, final string:
     genreString = ""
+
+    # Create the results. Add every decoded keyword
+    # to the final keyword string:
     for i in movieGenres:
+        # Skip the keyword/genre = 0
         if i > 0:
             genreString = genreString + genresDictionaryReverse[i] + ", "
-
+    # Drop the last ", ":
     genreString = genreString[:-2]
-
+    # Into the results list
     resultsList.append((currentDistance, movieTitle, genreString))
-    # print(d, resultsList[d])
 
 # Sort the list from largest to smallest distance:
 resultsList.sort(reverse=True)
 print("[INFO] Movie recommendations for: ", genresQuery)
+# Print the recommendations:
 for d in range(len(embeddingDistances)):
     print("", d, "-", resultsList[d])
