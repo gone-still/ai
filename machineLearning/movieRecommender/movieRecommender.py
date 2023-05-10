@@ -1,8 +1,8 @@
 # File        :   movieRecommender.py
-# Version     :   0.0.9
+# Version     :   0.0.10
 # Description :   Script that implements a movie recommendation system based on genre keywords
 
-# Date:       :   May 08, 2023
+# Date:       :   May 09, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -15,6 +15,8 @@ from tensorflow.keras.models import load_model
 
 from tensorflow.keras.utils import plot_model
 import matplotlib.pyplot as plt
+# from tensorflow.keras.layers import Embedding
+# from tensorflow.keras.layers import Dot
 
 
 # Returns True if an array is found in an array list:
@@ -113,6 +115,17 @@ def generateBatch(pairs, moviesDicts, genresDicts, moviesGenresDict, n_positive=
         # rather than computing them at once and sending them back like a list.
         outDict = {"movie": batch[:, 0], "genres": batch[:, 1:genresVectorLength + 1]}, batch[:, -1]
         yield outDict
+
+
+# Normalizes embeddings:
+def normalizeEmbeddings(inputArray):
+    # Normalize embeddings:
+    # Get the L2 Norm of all the embeddings as a row, then transpose it:
+    norm = np.linalg.norm(inputArray, axis=1).reshape((-1, 1))
+    # Divide each embedding by the square root of the sum of squared components (its L2 Norm):
+    normalizedVectors = inputArray / norm
+    # print(np.sum(np.square(normalizedVectors[0])))
+    return normalizedVectors
 
 
 # Project Path:
@@ -383,13 +396,29 @@ genresWeights = genresLayer.get_weights()[0]
 print("[INFO] -- Genre Embeddings Shape: ")
 print(" ", genresWeights.shape)
 
+# Normalize embeddings:
+# genresWeightsNormalized = normalizeEmbeddings(genresWeights)
+# print(genresWeightsNormalized[0])
+
+# for i in range(len(genresWeights)):
+#     currentWeight = genresWeights[i]
+#     currentNorm = np.linalg.norm(currentWeight)
+#     currentWeightNormalizer = currentWeight / currentNorm
+#     temp = np.sum(np.square(currentWeightNormalizer))
+#     print(i, temp)
+
+# genresWeights = genresWeights / columns
+
 moviesLayer = model.get_layer("movieEmbedding")
 moviesWeights = moviesLayer.get_weights()[0]
 print("[INFO] -- Movies Embeddings Shape: ")
 print(" ", moviesWeights.shape)
 
+# Normalize embeddings:
+moviesWeightsNormalized = normalizeEmbeddings(moviesWeights)
+
 # Get genres embedding from a genres query:
-genresQuery = ["Drama", "Crime"]
+genresQuery = ["Comedy", "Action"]
 totalQueryKeywords = columns
 
 # Store the total sum of each keyword embedding here:
@@ -412,7 +441,14 @@ for g in range(totalQueryKeywords):
     genreEmbeddingsSum = genreEmbeddingsSum + genreWeight
 
 # To numpy array:
-genreEmbeddingsVector = np.array(genreEmbeddingsSum)  # Shape should be (embeddingSize,)
+genreEmbeddingsVector = np.array(genreEmbeddingsSum)
+# Normalize...
+genresEmbeddingNorm = np.linalg.norm(genreEmbeddingsVector)
+genreEmbeddingsVectorNormalized = genreEmbeddingsVector / genresEmbeddingNorm
+# temp = np.sum(np.square(genreEmbeddingsVector))
+# print(i, temp)
+
+# print(np.square(genreEmbeddingsVector))
 
 # Get embeddings shape:
 totalMovies = moviesWeights.shape[0]
@@ -424,9 +460,17 @@ embeddingDistances = []
 for m in range(totalMovies):
     # Get current movie embedding:
     currentMovie = moviesWeights[m]
+    currentMovieNormalized = moviesWeightsNormalized[m]
     # Dot product:
-    currentDist = np.dot(currentMovie, genreEmbeddingsVector)
+    currentDist = np.dot(currentMovieNormalized, genreEmbeddingsVectorNormalized)
+    # a = currentMovie.reshape(1, 1, 60)
+    # b = genreEmbeddingsVector.reshape(1, 1, 60)
+    # kerasDot = Dot(normalize=True, axes=2)([a, b])
+    # print(kerasDot)
+    # s = kerasDot.numpy()
+    # print(s)
     # Add to temp list:
+    # embeddingDistances.append((currentDist, s))
     embeddingDistances.append(currentDist)
 
 # # Get max/min score of recommendations:
@@ -443,6 +487,8 @@ for d in range(len(embeddingDistances)):
 
     # Get distance and decode movie title and keywords:
     currentDistance = embeddingDistances[d]
+    # currentDistance = embeddingDistances[d][0]
+    # kerasDot = embeddingDistances[d][1]
     movieTitle = moviesDictionaryReverse[d]
     movieGenres = moviesGenresDictionary[d]
     # Concatenate all keywords in one, final string:
@@ -457,6 +503,7 @@ for d in range(len(embeddingDistances)):
     # Drop the last ", ":
     genreString = genreString[:-2]
     # Into the results list
+    # resultsList.append((currentDistance, kerasDot[0][0][0], movieTitle, genreString))
     resultsList.append((currentDistance, movieTitle, genreString))
 
 # Sort the list from largest to smallest distance:
