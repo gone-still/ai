@@ -67,7 +67,7 @@ inputDataset = inputDataset.replace({"classType": classDictionary})
 # Important features selection
 # Plot a person correlation heatmap to
 # locate the top features that are highly correlated
-# with the target feature (crew):
+# with the target feature:
 
 plt.figure(figsize=(5, 5))
 # Get correlation matrix:
