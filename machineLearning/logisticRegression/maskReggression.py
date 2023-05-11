@@ -1,9 +1,9 @@
 # File        :   maskReggression.py
-# Version     :   1.0.0
+# Version     :   1.0.1
 # Description :   [Train + Test]
 #                 Logistic reggression example for "Mask Data" custom dataset.
 
-# Date:       :   Apr 18, 2023
+# Date:       :   May 11, 2023
 # Author      :   Ricardo Acevedo-Avila
 # License     :   Creative Commons CC0
 
@@ -32,7 +32,7 @@ datasetName = "maskData.csv"
 predictionLabel = "classType"
 
 # Cross-validation folds:
-cvFolds = 5
+cvFolds = 10
 # Cross-validation parallel jobs (1 per core):
 parallelJobs = 5
 
@@ -78,14 +78,20 @@ plt.show()
 
 # Discard features that are below a correlation
 # Threshold:
-correlatedThreshold = 0.30
+correlatedThreshold = 0.20
 # Get the candidate features that correlate to the target feature:
 condidateFeatures = correlationMatrix[predictionLabel]
 # Apply the filter:
-importantFeatures = condidateFeatures[condidateFeatures >= correlatedThreshold]
+importantFeatures = condidateFeatures[abs(condidateFeatures) >= correlatedThreshold]
 print("[INFO] --- These are the most positively correlated features.")
 print("Predicting feature is: " + str(predictionLabel))
-print(importantFeatures)
+
+# Get features names as a list:
+importantFeaturesNames = list(importantFeatures.index)
+# Print the filtered features:
+for i in range(len(importantFeatures)):
+    # Print the feature index, feature name and its correlation value (to 4 decimal places):
+    print(i, ":", importantFeaturesNames[i], ",", "{:.4f}".format(importantFeatures[i]))
 print(" ")
 
 # Drop the target feature from important features, get feature names:
@@ -159,7 +165,7 @@ for i in range(len(testFeatures)):
         missmatch = " <-"
     # Print the info:
     print(" Sample:", i, "Predicted:", sampleClass, "Truth:", realClass,
-          "(Proba: " + "{:.4f}".format(sampleProbability) + ")"+missmatch)
+          "(Proba: " + "{:.4f}".format(sampleProbability) + ")" + missmatch)
 
 # Get confusion matrix and its plot:
 print("[INFO] --- Plotting CM")
