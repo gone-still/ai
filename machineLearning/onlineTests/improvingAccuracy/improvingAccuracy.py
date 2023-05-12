@@ -33,7 +33,7 @@ from collections import Counter
 # Prints the class distribution of
 # a dataset:
 def checkClassDistribution(dataset, targetFeature):
-    classLabels = df_train[targetFeature]
+    classLabels = dataset[targetFeature]
     classCounter = Counter(classLabels)
 
     # Print the class distribution:
