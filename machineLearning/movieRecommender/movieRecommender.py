@@ -10,7 +10,7 @@
 import pandas as pd
 import numpy as np
 import random
-from bookNet import movieNet
+from movienet import movieNet
 from tensorflow.keras.models import load_model
 
 from tensorflow.keras.utils import plot_model
