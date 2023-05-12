@@ -1,5 +1,5 @@
 # File        :   maskReggression.py
-# Version     :   1.0.1
+# Version     :   1.1.5
 # Description :   [Train + Test]
 #                 Logistic reggression example for "Mask Data" custom dataset.
 
@@ -18,9 +18,29 @@ from sklearn.linear_model import LogisticRegression
 
 from sklearn import metrics
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import mean_squared_error
+
+from collections import Counter
+from imblearn.over_sampling import RandomOverSampler
+from sklearn.model_selection import GridSearchCV
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+
+# Prints the class distribution of
+# a dataset:
+def checkClassDistribution(dataset, targetFeature):
+    classLabels = dataset[targetFeature]
+    classCounter = Counter(classLabels)
+
+    # Print the class distribution:
+    for c in classCounter:
+        value = classCounter[c]
+        print("Class: ", c, " Count: ", value)
+
+    print("Total Samples: ", dataset.shape)
+
 
 # Project Path:
 projectPath = "D://dataSets//"
@@ -110,8 +130,28 @@ inputDataset = inputDataset[importantFeatures]
 print("[INFO] --- Splitting Complete Dataset...")
 # Get -> Training Features + Training Labels
 #     -> Testing Features + Test Labels
-trainFeatures, testFeatures, trainLabels, testLabels = train_test_split(inputDataset, predictingFeature, test_size=0.30,
-                                                                        random_state=0)
+trainFeatures, testFeatures, trainLabels, testLabels = train_test_split(inputDataset, predictingFeature, test_size=0.25,
+                                                                        random_state=42)
+
+# Create trainning dataset:
+trainFeatures = trainFeatures.reset_index(drop=True)
+trainLabels = trainLabels.reset_index(drop=True)
+trainingDataset = trainFeatures.join(trainLabels)
+
+# Check out the class distribution:
+print("[INFO] --- Train Dataset class distribution [Pre-sampling]:")
+checkClassDistribution(trainingDataset, predictionLabel)
+
+# Resample to balance out both classes:
+ros = RandomOverSampler(sampling_strategy="minority", random_state=42)
+trainFeatures, trainLabels = ros.fit_resample(trainFeatures, trainLabels)
+
+# Create the full, oversampled, dataset:
+trainingDataset = trainFeatures.join(trainLabels)
+
+# Check out the new class distribution:
+print("[INFO] --- Train Dataset class distribution [Post-sampling]:")
+checkClassDistribution(trainingDataset, predictionLabel)
 
 # Feature normalization
 print("[INFO] --- Normalizing features...")
@@ -124,7 +164,7 @@ trainFeatures = featureScaler.fit_transform(trainFeatures)
 testFeatures = featureScaler.transform(testFeatures)
 
 # Create the logistic reggresor model:
-logisticReggressor = LogisticRegression(solver="liblinear", C=1.0, random_state=0)
+logisticReggressor = LogisticRegression(solver="liblinear", C=1.0, random_state=42)
 
 # Fit the model to the training data:
 trainLabels = trainLabels.values.ravel()  # From column to row
@@ -191,3 +231,75 @@ print("[INFO] --- Probability Threshold: " + "{:.4f}".format(probabilityThreshol
 # Print Accuracy report:
 accuracyReport = classification_report(testLabels, regressorPredictions)
 print("[INFO] --- Accuracy Report:", accuracyReport, sep="\n", end="\n\n")
+
+# Hyperparameter optimization using Grid Search:
+print("[INFO] --- Running Grid Search...")
+parameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 30), "penalty": [ "l1", "l2"]}
+logisticReggressor = LogisticRegression(max_iter=400)
+logisticReggressorOptimized = GridSearchCV(logisticReggressor, parameters, cv=cvFolds, n_jobs=parallelJobs)
+logisticReggressorOptimized.fit(trainFeatures, trainLabels)
+
+# Print hyperparameters & accuracy:
+print("[INFO] --- Grid Search Best Parameters:")
+print("", logisticReggressorOptimized.best_params_)
+
+# Check out the reggressor accuracy using cross-validation:
+print("[INFO] --- [Post-Grid Search] Cross-Validating Logistic Reggressor...")
+reggressorAccuracy = cross_val_score(estimator=logisticReggressorOptimized, X=trainFeatures, y=trainLabels, cv=cvFolds,
+                                     n_jobs=parallelJobs, verbose=3)
+
+# Accuracy for each fold:
+print("[INFO] --- [Post-Grid Search] Fold Accuracy:")
+print(" ", reggressorAccuracy)
+print("[INFO] --- [Post-Grid Search] Mean & Std Dev Fold Accuracy:")
+print(" Mu: ", np.mean(np.array(reggressorAccuracy)), "Sigma:", np.std(np.array(reggressorAccuracy)))
+
+# Test the Regression Model:
+print("[INFO] --- [Post-Grid Search] Testing Logistic Reggressor...")
+predictionProbabilities = logisticReggressorOptimized.predict_proba(testFeatures)
+regressorPredictions = logisticReggressorOptimized.predict(testFeatures)
+
+regressorScore = logisticReggressorOptimized.score(testFeatures, testLabels)
+print(" Accuracy:", regressorScore)
+
+print("[INFO] --- [Post-Grid Search] Per sample accuracy...")
+# Print the predicted class, real class and probabilities per sample:
+for i in range(len(testFeatures)):
+    # Get sample max probability:
+    sampleProbability = np.max(predictionProbabilities[i])
+    # Get predicted class:
+    sampleClass = np.argmax(predictionProbabilities[i])
+    # Get real class:
+    realClass = testLabels[i]
+    # Print missmatch:
+    missmatch = ""
+    if realClass != sampleClass:
+        missmatch = " <-"
+    # Print the info:
+    print(" Sample:", i, "Predicted:", sampleClass, "Truth:", realClass,
+          "(Proba: " + "{:.4f}".format(sampleProbability) + ")" + missmatch)
+
+# Get confusion matrix and its plot:
+print("[INFO] --- [Post-Grid Search] Plotting CM")
+confusionMatrix = confusion_matrix(testLabels, regressorPredictions, labels=logisticReggressorOptimized.classes_)
+disp = ConfusionMatrixDisplay(confusion_matrix=confusionMatrix, display_labels=logisticReggressorOptimized.classes_)
+disp.plot()
+plt.show()
+
+# Plot ROC:
+fpr, tpr, proba = metrics.roc_curve(testLabels, predictionProbabilities[::, 1])
+auc = metrics.roc_auc_score(testLabels, predictionProbabilities[::, 1])
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.plot(fpr, tpr, label="data 1, auc=" + str(auc))
+plt.legend(loc=4)
+plt.show()
+
+# Optimal probability threshold according to the ROC curve
+# Both classes unweighted. If proba >= probabilityThreshold -> outClass = 1, else: outClass = 0
+probabilityThreshold = sorted(list(zip(np.abs(tpr - fpr), proba)), key=lambda i: i[0], reverse=True)[0][1]
+print("[INFO] --- [Post-Grid Search] Probability Threshold: " + "{:.4f}".format(probabilityThreshold))
+
+# Print Accuracy report:
+accuracyReport = classification_report(testLabels, regressorPredictions)
+print("[INFO] --- [Post-Grid Search] Accuracy Report:", accuracyReport, sep="\n", end="\n\n")
