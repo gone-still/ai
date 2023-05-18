@@ -1,8 +1,8 @@
 # File        :   movieRecommender.py
-# Version     :   0.0.10
+# Version     :   0.2.0
 # Description :   Script that implements a movie recommendation system based on genre keywords
 
-# Date:       :   May 09, 2023
+# Date:       :   May 17, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -10,13 +10,12 @@
 import pandas as pd
 import numpy as np
 import random
-from movienet import movieNet
+import tensorflow as tf
+from movieNet import movieNet
 from tensorflow.keras.models import load_model
 
 from tensorflow.keras.utils import plot_model
 import matplotlib.pyplot as plt
-# from tensorflow.keras.layers import Embedding
-# from tensorflow.keras.layers import Dot
 
 
 # Returns True if an array is found in an array list:
@@ -26,7 +25,7 @@ def isArrayInList(inputArray, arrayList):
 
 # Batch Generator:
 def generateBatch(pairs, moviesDicts, genresDicts, moviesGenresDict, n_positive=50, negative_ratio=1.0,
-                  classification=False):
+                  classification=False, startVal=0):
     # Get dictionaries:
     forwardMovieDict = moviesDicts[0]
     reverseMovieDict = moviesDicts[1]
@@ -52,12 +51,24 @@ def generateBatch(pairs, moviesDicts, genresDicts, moviesGenresDict, n_positive=
     else:
         negLabel = -1
 
+    # Set list indices:
+    listStart = startVal
+    # targetPairs = pairs
     # This creates a generator, called by the neural network during
     # training...
     while True:
         # Randomly choose n positive examples from the pairs list:
-        randomSamples = random.sample(pairs, n_positive)
-        # Store the positive random samples in the batch array:
+        # randomSamples = random.sample(pairs, n_positive)
+
+        if listStart >= len(pairs):
+            random.shuffle(pairs)
+            listStart = 0
+
+        listEnd = listStart + n_positive
+        randomSamples = pairs[listStart:listEnd]
+        # print(" indices:", (listStart, listEnd))
+
+        # Store the positive random samples in the batch array:48640
         for i in range(len(randomSamples)):
             # Get current sample numpy array:
             currentSample = randomSamples[i]
@@ -108,6 +119,9 @@ def generateBatch(pairs, moviesDicts, genresDicts, moviesGenresDict, n_positive=
 
         # Make sure to shuffle order
         np.random.shuffle(batch)
+        # print(" Generated a batch with: "+str(len(batch))+" samples")
+
+        listStart = listStart + n_positive
 
         # The yield statement suspends a function’s execution and sends a value back to the caller, but retains
         # enough state to enable the function to resume where it left off. When the function resumes, it continues
@@ -128,20 +142,22 @@ def normalizeEmbeddings(inputArray):
     return normalizedVectors
 
 
+print(tf.config.list_physical_devices("GPU"))
+
 # Project Path:
 projectPath = "D://dataSets//movies//"
 
 # File Names:
-datasetName = "imdb_movie_keyword_small.csv"
-modelFilename = "bookRecommender.model"
+datasetName = "imdb_movie_keyword.csv"
+modelFilename = "movieRecommender.model"
 
 # DNN Setup:
-embeddingSize = (60, 60)
+embeddingSize = (100, 100)
 classificationMode = False
 activationLayer = "softmax"
-trainingEpochs = 20
-gamma = 1.5
-learningRate = gamma * 1e-3
+trainingEpochs = 10
+gamma = 10.0 * 2.0
+learningRate = gamma * 1e-2
 
 # DNN options:
 saveModel = False
@@ -175,7 +191,7 @@ print(movieGenres.head())
 (rows, columns) = movieGenresSplit.shape
 print((rows, columns))
 
-# Adde the new columns that will store the encoded
+# Add the new columns that will store the encoded
 # genres
 for i in range(columns):
     columnHeader = "encodedGenre_" + str(i)
@@ -183,13 +199,10 @@ for i in range(columns):
 
 # Genres encoding. Create a dictionary with all
 # the genres encoded into numerical values:
-genresDictionary = {}
-genresDictionaryReverse = {}
-keywordCount = 1
+genresTempList = []
 
 # Loop through the rows:
 for i, row in enumerate(movieGenres.itertuples()):
-
     # Extract genre string:
     currentGenre = row.genre
     print(currentGenre)
@@ -198,17 +211,46 @@ for i, row in enumerate(movieGenres.itertuples()):
 
     # Encode strings:
     for j, k in enumerate(keywordsList):
-        if k not in genresDictionary:
-            # Store in direct dictionary:
-            genresDictionary[k] = keywordCount
-            # Store in reverse dictionary:
-            genresDictionaryReverse[keywordCount] = k
+        if k not in genresTempList:
+            # Store in tempList:
+            genresTempList.append(k)
 
-            keywordCount += 1
+totalGenres = len(genresTempList)
+print("Total genres: ", totalGenres)
 
+# Set random seed:
+random.seed(42)
+
+# Shuffle list:
+# random.shuffle(genresTempList)
+
+# Create dictionaries from genre list:
+genresDictionary = {}
+genresDictionaryReverse = {}
+keywordCount = 1
+
+for g in range(totalGenres):
+    # Get current genre:
+    currentGenre = genresTempList[g]
+    # Store in direct dictionary:
+    genresDictionary[currentGenre] = keywordCount
+    # Store in reverse dictionary:
+    genresDictionaryReverse[keywordCount] = currentGenre
+    keywordCount += 1
+
+# Encode dataframe genre columns:
+for i, row in enumerate(movieGenres.itertuples()):
+    # Extract genre string:
+    currentGenre = row.genre
+    print(currentGenre)
+    # Separate into individual strings:
+    keywordsList = currentGenre.split(", ")
+
+    # Process genre strings:
+    for j, k in enumerate(keywordsList):
         # Populate new encoded columns:
         genreCode = genresDictionary[k]
-        # Into encodded column:
+        # Into encoded column:
         columnHeader = "encodedGenre_" + str(j)
         movieGenres.loc[:, columnHeader][i] = genreCode
 
@@ -261,14 +303,17 @@ for movie in moviesDictionary:
 
 # Create pairs of real movie title + real (un ordered) genres:
 pairs = []
-totalPairs = 200
+samplesPerClass = 2
+totalPairs = encodedDataset.shape[0]
 
 random.seed(100)
+
 # Randomly sample a row from the encoded dataset:
 for i in range(totalPairs):
     # Get random row, sampling with replacement:
-    randomRow = encodedDataset.sample(n=1, replace=True)
-    print(randomRow)
+    # randomRow = encodedDataset.sample(n=1, replace=True)
+    randomRow = encodedDataset.iloc[[i]]
+    # print(randomRow)
 
     # Process row:
     rowList = randomRow.values[0]
@@ -279,20 +324,25 @@ for i in range(totalPairs):
     genreList = rowList[1:]
     totalGenres = genreList.shape[0]
     # print("original", genreList)
-    # Shuffle generes:
-    np.random.shuffle(genreList)
-    # print("shuffled", genreList)
 
-    # Create out numpy array:
-    outNumpyArray = np.zeros(totalGenres + 1)
-    outNumpyArray[0] = movieCode
-    outNumpyArray[1:] = genreList
+    for g in range(samplesPerClass):
+        # Create out numpy array:
+        genresOut = np.zeros(totalGenres + 1)
 
-    # Into pair list:
-    pairs.append(outNumpyArray)
-    print(pairs[i])
+        # Shuffle genres:
+        np.random.shuffle(genreList)
+
+        genresOut[0] = movieCode
+        genresOut[1:] = genreList
+
+        # Shuffled genres into pair list:
+        pairs.append(genresOut)
 
 print(len(pairs))
+
+# Shuffle list:
+random.shuffle(pairs)
+random.shuffle(pairs)
 
 # Generate batch:
 x, y = next(
@@ -345,8 +395,8 @@ else:
     plot_model(model, to_file=graphPath, show_shapes=True, show_layer_names=True)
     print("graph saved to: " + graphPath)
 
-    # Set the samples generator:
-    nPositive = 64
+    # Set the samples' generator:
+    nPositive = 1024
     # gen = generate_batch(pairs, n_positive, negative_ratio=2, classification=reggressionMode)
     gen = generateBatch(pairs=pairs, moviesDicts=(moviesDictionary, moviesDictionaryReverse),
                         genresDicts=(genresDictionary, genresDictionaryReverse),
@@ -418,7 +468,7 @@ print(" ", moviesWeights.shape)
 moviesWeightsNormalized = normalizeEmbeddings(moviesWeights)
 
 # Get genres embedding from a genres query:
-genresQuery = ["Comedy", "Action"]
+genresQuery = ["Thriller", "Horror"]
 totalQueryKeywords = columns
 
 # Store the total sum of each keyword embedding here:
