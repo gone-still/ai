@@ -1,8 +1,8 @@
 # File        :   movieRecommender.py
-# Version     :   0.2.0
+# Version     :   1.0.0
 # Description :   Script that implements a movie recommendation system based on genre keywords
 
-# Date:       :   May 17, 2023
+# Date:       :   May 19, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -25,7 +25,7 @@ def isArrayInList(inputArray, arrayList):
 
 # Batch Generator:
 def generateBatch(pairs, moviesDicts, genresDicts, moviesGenresDict, n_positive=50, negative_ratio=1.0,
-                  classification=False, startVal=0):
+                  classification=False, startVal=0, pickRandom=False):
     # Get dictionaries:
     forwardMovieDict = moviesDicts[0]
     reverseMovieDict = moviesDicts[1]
@@ -42,33 +42,40 @@ def generateBatch(pairs, moviesDicts, genresDicts, moviesGenresDict, n_positive=
     genresVectorLength = pairs[0].shape[0] - 1  # subtract the movie id
     batch = np.zeros((batch_size, genresVectorLength + 2))
 
-    # Get the unique entries in the positive pair list:
-    # pairsSet = set(pairs)
-
     # Adjust label based on task
     if classification:
         negLabel = 0
     else:
         negLabel = -1
 
-    # Set list indices:
+    # Set list index for sequential
+    # sampling:
     listStart = startVal
-    # targetPairs = pairs
+
     # This creates a generator, called by the neural network during
     # training...
     while True:
-        # Randomly choose n positive examples from the pairs list:
-        # randomSamples = random.sample(pairs, n_positive)
+        # Check if random ore sequential samples from the dataset should
+        # be drawn:
+        if pickRandom:
+            # Randomly choose n positive examples from the pairs list:
+            randomSamples = random.sample(pairs, n_positive)
 
-        if listStart >= len(pairs):
-            random.shuffle(pairs)
-            listStart = 0
+        else:
+            # Sequential sampling from dataset:
+            # Watch the sampling index:
+            if listStart >= len(pairs):
+                # On every "Epoch", shuffle the dataset
+                random.shuffle(pairs)
+                # Sampling index is reset:
+                listStart = 0
 
-        listEnd = listStart + n_positive
-        randomSamples = pairs[listStart:listEnd]
-        # print(" indices:", (listStart, listEnd))
+            # Compute end of batch index:
+            listEnd = listStart + n_positive
+            # Sequentially slice the batch from the dataset:
+            randomSamples = pairs[listStart:listEnd]
 
-        # Store the positive random samples in the batch array:48640
+        # Store the positive random samples in the batch array:
         for i in range(len(randomSamples)):
             # Get current sample numpy array:
             currentSample = randomSamples[i]
@@ -97,21 +104,16 @@ def generateBatch(pairs, moviesDicts, genresDicts, moviesGenresDict, n_positive=
                 randomGenre = random.choice(list(set(range(0, totalGenres + 1)) - set(randomMovieGenres)))
                 # Into the random vector of genres:
                 randomGenresVector[j] = randomGenre
-                # Exclude this genre for this sample. Genres cannot repeat in one sample:
+                # Exclude this genre for this sample. Genres cannot repeat more than once in the same sample:
                 randomMovieGenres = np.append(randomMovieGenres, randomGenre)
-
-            # randomGenresVector = random.sample(pairs, 1)[0]  # Get a random row from pairs
-            # Slice the keyword vector only:
-            # randomGenresVector = randomGenresVector[1:]
 
             # Build random vector, insert movie id at position 0 of a
             # larger numpy array made of the random movie values:
             randomVector = np.insert(randomGenresVector, 0, randomMovie)
-            # randomVector = pairs[0]
 
             # Check to make sure this is not a positive example
-            results = isArrayInList(randomVector, pairs)
-            if not (isArrayInList(randomVector, pairs)):
+            isInList = isArrayInList(randomVector, pairs)
+            if not isInList:
                 # Add to batch and increment index
                 batch[i][0:genresVectorLength + 1] = randomVector
                 batch[i][-1] = negLabel
@@ -121,6 +123,7 @@ def generateBatch(pairs, moviesDicts, genresDicts, moviesGenresDict, n_positive=
         np.random.shuffle(batch)
         # print(" Generated a batch with: "+str(len(batch))+" samples")
 
+        # Prepare sequential dataset slice index for next iteration:
         listStart = listStart + n_positive
 
         # The yield statement suspends a function’s execution and sends a value back to the caller, but retains
@@ -128,6 +131,7 @@ def generateBatch(pairs, moviesDicts, genresDicts, moviesGenresDict, n_positive=
         # execution immediately after the last yield run. This allows its code to produce a series of values over time,
         # rather than computing them at once and sending them back like a list.
         outDict = {"movie": batch[:, 0], "genres": batch[:, 1:genresVectorLength + 1]}, batch[:, -1]
+
         yield outDict
 
 
@@ -142,6 +146,7 @@ def normalizeEmbeddings(inputArray):
     return normalizedVectors
 
 
+# Check if GPU utilization is possible:
 print(tf.config.list_physical_devices("GPU"))
 
 # Project Path:
@@ -150,6 +155,9 @@ projectPath = "D://dataSets//movies//"
 # File Names:
 datasetName = "imdb_movie_keyword.csv"
 modelFilename = "movieRecommender.model"
+
+# Batch generation options:
+randomRows = True
 
 # DNN Setup:
 embeddingSize = (100, 100)
@@ -180,16 +188,15 @@ movieGenres = movieGenres.to_frame()
 
 # Create an extra column with a list of strings:
 movieGenres["genres_list"] = movieGenres["genre"].str.split(",")
-movieGenres.head()
+print(movieGenres.head())
 
 # Split genres list into separate columns:
 movieGenresSplit = pd.DataFrame(movieGenres["genres_list"].tolist()).fillna("").add_prefix("genre_")
 movieGenres = pd.concat([movieGenres, movieGenresSplit], axis=1)
-print(movieGenres.head())
 
 # Get number of columns used to split the genres:
 (rows, columns) = movieGenresSplit.shape
-print((rows, columns))
+print(" Movies Genres shape: ", (rows, columns))
 
 # Add the new columns that will store the encoded
 # genres
@@ -216,7 +223,7 @@ for i, row in enumerate(movieGenres.itertuples()):
             genresTempList.append(k)
 
 totalGenres = len(genresTempList)
-print("Total genres: ", totalGenres)
+print(" Total genres: ", totalGenres)
 
 # Set random seed:
 random.seed(42)
@@ -242,7 +249,7 @@ for g in range(totalGenres):
 for i, row in enumerate(movieGenres.itertuples()):
     # Extract genre string:
     currentGenre = row.genre
-    print(currentGenre)
+    # print(currentGenre)
     # Separate into individual strings:
     keywordsList = currentGenre.split(", ")
 
@@ -254,48 +261,56 @@ for i, row in enumerate(movieGenres.itertuples()):
         columnHeader = "encodedGenre_" + str(j)
         movieGenres.loc[:, columnHeader][i] = genreCode
 
+# Check out the first 5 samples of movie genres:
+print("[INFO] -- Movie Genres Encoding:")
 print(movieGenres.head())
 
 # Extract the movie title:
 movieTitles = inputDataset["movie_title"]
-# movieTitles = movieTitles.to_frame()
 
+# Encode the categorical movie titles to numerical values,
+# Explicit conversion for movie titles to categorical values:
 movieTitlesEncoded = movieTitles.astype("category")
+# Perform label encoding on the categorical values:
 movieTitlesEncoded = movieTitlesEncoded.cat.codes
+# Convert series to dataframe:
 movieTitlesEncoded = movieTitlesEncoded.to_frame()
-
+# Set column:
 movieTitlesEncoded = movieTitlesEncoded.set_axis(["movie_title_encoded"], axis=1)
-
+# Concatenate dataframe to original movie titles:
 movieTitles = pd.concat([movieTitles, movieTitlesEncoded], axis=1)
 
+# Check out the first 5 samples of movie titles and their encoding:
+print("[INFO] -- Movie Titles Encoded:")
 print(movieTitles.head())
 
 # Create the movie_title -> code dictionary:
 moviesDictionary = {}
+# Create the dictionary mapping the movie title codes with their actual categorical titles:
 moviesDictionary = dict(zip(movieTitles.movie_title, movieTitles.movie_title_encoded))
 
-# Complete dataset:
+# Crete the complete (encoded) dataset:
 columnsList = [movieTitlesEncoded]
 for i in range(columns):
     columnHeader = "encodedGenre_" + str(i)
     columnsList.append(movieGenres[columnHeader])
 
 encodedDataset = pd.concat(columnsList, axis=1)
+print("[INFO] -- Movie Titles and Genres Encoded:")
 print(encodedDataset.head())
 
-# Dictionary lenghts:
+# Get the dictionary lengths:
 moviesDictionaryLength = len(moviesDictionary)
 genresDictionaryLength = len(genresDictionary)
 
-print((moviesDictionaryLength, genresDictionaryLength))
+print(" Dictionary lengths:", (moviesDictionaryLength, genresDictionaryLength))
 
-# Create movie --> genres (encoded) dictionary:
+# Create movie (encoded) --> genres (encoded) dictionary:
 moviesGenresDictionary = {}
 moviesGenresDictionary = encodedDataset.set_index("movie_title_encoded").T.to_dict("list")
 
-# Create reverse movie dictionary:
+# Create reverse movie dictionary (Movie ID -> Movie Title):
 moviesDictionaryReverse = {}
-
 for movie in moviesDictionary:
     # Get value:
     moviId = moviesDictionary[movie]
@@ -306,25 +321,22 @@ pairs = []
 samplesPerClass = 2
 totalPairs = encodedDataset.shape[0]
 
-random.seed(100)
-
-# Randomly sample a row from the encoded dataset:
+# Sequentially sample a row from the encoded dataset:
 for i in range(totalPairs):
-    # Get random row, sampling with replacement:
-    # randomRow = encodedDataset.sample(n=1, replace=True)
-    randomRow = encodedDataset.iloc[[i]]
-    # print(randomRow)
+    # Get sequential row:
+    currentRow = encodedDataset.iloc[[i]]
 
     # Process row:
-    rowList = randomRow.values[0]
+    rowList = currentRow.values[0]
     # Get movie code
     movieCode = rowList[0]
 
     # Get genre list:
     genreList = rowList[1:]
     totalGenres = genreList.shape[0]
-    # print("original", genreList)
 
+    # For this movie, create a couple of samples with its
+    # genres randomly shuffled:
     for g in range(samplesPerClass):
         # Create out numpy array:
         genresOut = np.zeros(totalGenres + 1)
@@ -332,23 +344,26 @@ for i in range(totalPairs):
         # Shuffle genres:
         np.random.shuffle(genreList)
 
+        # Store in temp array:
         genresOut[0] = movieCode
         genresOut[1:] = genreList
 
-        # Shuffled genres into pair list:
+        # Store shuffled genres into pair list:
         pairs.append(genresOut)
 
-print(len(pairs))
+print("[INFO] -- Pairs dataset length:")
+print("", len(pairs))
 
 # Shuffle list:
 random.shuffle(pairs)
+# ... and again:
 random.shuffle(pairs)
 
 # Generate batch:
 x, y = next(
     generateBatch(pairs=pairs, moviesDicts=(moviesDictionary, moviesDictionaryReverse),
                   genresDicts=(genresDictionary, genresDictionaryReverse), moviesGenresDict=moviesGenresDictionary,
-                  n_positive=2, negative_ratio=2, classification=classificationMode))
+                  n_positive=2, negative_ratio=2, classification=classificationMode, startVal=0, pickRandom=randomRows))
 
 # Check batch info:
 for i, (label, movieIndex, genresVector) in enumerate(zip(y, x["movie"], x["genres"])):
@@ -368,8 +383,7 @@ for i, (label, movieIndex, genresVector) in enumerate(zip(y, x["movie"], x["genr
         genresList.append(currentGenre)
 
     # Check the info:
-    print(i, movieTitle, genresList, label)
-    # print(f" {i} Movie: {movieTitle:30} Genres: {"{:3}{:20}".format(genresList)} Label: {label}")
+    print("", i, movieTitle, genresList, label)
 
 # Load or train model from scratch:
 if loadModel:
@@ -378,6 +392,7 @@ if loadModel:
     print("[INFO] -- Loading DNN Model from: " + modelPath)
     # Load model:
     model = load_model(modelPath)
+    # Get summary:
     model.summary()
 else:
     print("[INFO] -- Creating + Fitting DNN Model from scratch:")
@@ -387,21 +402,21 @@ else:
     model = movieNet.build(embeddingSize=embeddingSize, movieDictionaryLength=len(moviesDictionary),
                            genresDictionaryLength=len(genresDictionary) + 1, classification=classificationMode,
                            activationFunction=activationLayer, alpha=learningRate, epochs=trainingEpochs)
-
+    # Get summary:
     model.summary()
 
     # Plot DNN model:
     graphPath = projectPath + "model_plot.png"
     plot_model(model, to_file=graphPath, show_shapes=True, show_layer_names=True)
-    print("graph saved to: " + graphPath)
+    print("[INFO] -- Model graph saved to: " + graphPath)
 
     # Set the samples' generator:
     nPositive = 1024
-    # gen = generate_batch(pairs, n_positive, negative_ratio=2, classification=reggressionMode)
     gen = generateBatch(pairs=pairs, moviesDicts=(moviesDictionary, moviesDictionaryReverse),
                         genresDicts=(genresDictionary, genresDictionaryReverse),
                         moviesGenresDict=moviesGenresDictionary,
-                        n_positive=nPositive, negative_ratio=2, classification=classificationMode)
+                        n_positive=nPositive, negative_ratio=2, classification=classificationMode, startVal=0,
+                        pickRandom=randomRows)
 
     # Train the DNN:
     H = model.fit(
@@ -411,9 +426,11 @@ else:
         verbose=1
     )
 
+    # Check if model needs to be saved:
     if saveModel:
+        # Set model path:
         modelPath = projectPath + modelFilename
-        print("Saving model to: " + str(modelPath))
+        print("[INFO] -- Saving model to: " + str(modelPath))
         model.save(modelPath)
 
     # Plot the training loss and accuracy
@@ -437,28 +454,18 @@ else:
     plt.legend(loc="lower left")
 
     # Save plot to disk:
-    plt.savefig(projectPath + "graph.png")
+    plotPath = projectPath + "lossGraph.png"
+    print("[INFO] -- Saving model loss plot to:" + plotPath)
+    plt.savefig(plotPath)
     plt.show()
 
-# Extract Embeddings and Analyze them:
+# Extract Genre embeddings:
 genresLayer = model.get_layer("genresEmbedding")
 genresWeights = genresLayer.get_weights()[0]
 print("[INFO] -- Genre Embeddings Shape: ")
 print(" ", genresWeights.shape)
 
-# Normalize embeddings:
-# genresWeightsNormalized = normalizeEmbeddings(genresWeights)
-# print(genresWeightsNormalized[0])
-
-# for i in range(len(genresWeights)):
-#     currentWeight = genresWeights[i]
-#     currentNorm = np.linalg.norm(currentWeight)
-#     currentWeightNormalizer = currentWeight / currentNorm
-#     temp = np.sum(np.square(currentWeightNormalizer))
-#     print(i, temp)
-
-# genresWeights = genresWeights / columns
-
+# Extract Movie title embeddings:
 moviesLayer = model.get_layer("movieEmbedding")
 moviesWeights = moviesLayer.get_weights()[0]
 print("[INFO] -- Movies Embeddings Shape: ")
@@ -469,6 +476,7 @@ moviesWeightsNormalized = normalizeEmbeddings(moviesWeights)
 
 # Get genres embedding from a genres query:
 genresQuery = ["Thriller", "Horror"]
+# Get the total genres used:
 totalQueryKeywords = columns
 
 # Store the total sum of each keyword embedding here:
@@ -492,13 +500,11 @@ for g in range(totalQueryKeywords):
 
 # To numpy array:
 genreEmbeddingsVector = np.array(genreEmbeddingsSum)
-# Normalize...
+
+# Normalize the accumulated vector, this is the vector that will be measured
+# with the movie title vector. Both are normalized now:
 genresEmbeddingNorm = np.linalg.norm(genreEmbeddingsVector)
 genreEmbeddingsVectorNormalized = genreEmbeddingsVector / genresEmbeddingNorm
-# temp = np.sum(np.square(genreEmbeddingsVector))
-# print(i, temp)
-
-# print(np.square(genreEmbeddingsVector))
 
 # Get embeddings shape:
 totalMovies = moviesWeights.shape[0]
@@ -511,6 +517,7 @@ for m in range(totalMovies):
     # Get current movie embedding:
     currentMovie = moviesWeights[m]
     currentMovieNormalized = moviesWeightsNormalized[m]
+
     # Dot product:
     currentDist = np.dot(currentMovieNormalized, genreEmbeddingsVectorNormalized)
     # a = currentMovie.reshape(1, 1, 60)
@@ -523,24 +530,21 @@ for m in range(totalMovies):
     # embeddingDistances.append((currentDist, s))
     embeddingDistances.append(currentDist)
 
-# # Get max/min score of recommendations:
-# maxDist = max(embeddingDistances)
-# minDist = min(embeddingDistances)
-# print((maxDist, minDist))
-
 # Store the results here. They will be stored as
-# the tuple: (distance, movie title, keywords)
+# the tuple: (distance, movie title, keywords/genres)
 resultsList = []
 
 # For all the dot-product produced distances:
 for d in range(len(embeddingDistances)):
 
-    # Get distance and decode movie title and keywords:
+    # Get distance and decode movie title and genres:
     currentDistance = embeddingDistances[d]
     # currentDistance = embeddingDistances[d][0]
     # kerasDot = embeddingDistances[d][1]
+
     movieTitle = moviesDictionaryReverse[d]
     movieGenres = moviesGenresDictionary[d]
+
     # Concatenate all keywords in one, final string:
     genreString = ""
 
@@ -550,15 +554,17 @@ for d in range(len(embeddingDistances)):
         # Skip the keyword/genre = 0
         if i > 0:
             genreString = genreString + genresDictionaryReverse[i] + ", "
+
     # Drop the last ", ":
     genreString = genreString[:-2]
-    # Into the results list
+
+    # Into the results list:
     # resultsList.append((currentDistance, kerasDot[0][0][0], movieTitle, genreString))
     resultsList.append((currentDistance, movieTitle, genreString))
 
 # Sort the list from largest to smallest distance:
 resultsList.sort(reverse=True)
-print("[INFO] Movie recommendations for: ", genresQuery)
+print("[INFO] -- Movie recommendations for: ", genresQuery)
 # Print the recommendations:
 for d in range(len(embeddingDistances)):
     print("", d, "-", resultsList[d])
