@@ -1,9 +1,9 @@
-# File        :   maskReggression.py
-# Version     :   1.1.5
+# File        :   maskRegression.py
+# Version     :   1.2.0
 # Description :   [Train + Test]
-#                 Logistic reggression example for "Mask Data" custom dataset.
+#                 Logistic regression example for "Mask Data" custom dataset.
 
-# Date:       :   May 11, 2023
+# Date:       :   May 20, 2023
 # Author      :   Ricardo Acevedo-Avila
 # License     :   Creative Commons CC0
 
@@ -18,14 +18,19 @@ from sklearn.linear_model import LogisticRegression
 
 from sklearn import metrics
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import precision_recall_curve
 
 from collections import Counter
 from imblearn.over_sampling import RandomOverSampler
 from sklearn.model_selection import GridSearchCV
-
-import matplotlib.pyplot as plt
 import seaborn as sns
+
+# The TK gui crashes while debugging with opened windows,
+# Change graph backend to TkAgg:
+import matplotlib
+from matplotlib import pyplot as plt
+
+matplotlib.use("TkAgg")
 
 
 # Prints the class distribution of
@@ -87,7 +92,7 @@ inputDataset = inputDataset.replace({"classType": classDictionary})
 # Important features selection
 # Plot a person correlation heatmap to
 # locate the top features that are highly correlated
-# with the target feature:
+# with the target feature (crew):
 
 plt.figure(figsize=(5, 5))
 # Get correlation matrix:
@@ -234,7 +239,7 @@ print("[INFO] --- Accuracy Report:", accuracyReport, sep="\n", end="\n\n")
 
 # Hyperparameter optimization using Grid Search:
 print("[INFO] --- Running Grid Search...")
-parameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 30), "penalty": [ "l1", "l2"]}
+parameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 30), "penalty": ["l1", "l2"]}
 logisticReggressor = LogisticRegression(max_iter=400)
 logisticReggressorOptimized = GridSearchCV(logisticReggressor, parameters, cv=cvFolds, n_jobs=parallelJobs)
 logisticReggressorOptimized.fit(trainFeatures, trainLabels)
@@ -263,6 +268,7 @@ regressorScore = logisticReggressorOptimized.score(testFeatures, testLabels)
 print(" Accuracy:", regressorScore)
 
 print("[INFO] --- [Post-Grid Search] Per sample accuracy...")
+
 # Print the predicted class, real class and probabilities per sample:
 for i in range(len(testFeatures)):
     # Get sample max probability:
@@ -271,12 +277,25 @@ for i in range(len(testFeatures)):
     sampleClass = np.argmax(predictionProbabilities[i])
     # Get real class:
     realClass = testLabels[i]
+
+    # Custom prediction set at a probability of 0.59,
+    # to keep a reasonable precision/recall ratio for the application
+    # (Trying to boost precision at the cost of recall).
+    # 0.5688 which yields a ROC point of (0.7857, 0.1538):
+    if sampleProbability > 0.5688:
+        customClass = sampleClass
+    else:
+        customClass = 0
+
     # Print missmatch:
-    missmatch = ""
+    missmatch = " "
     if realClass != sampleClass:
-        missmatch = " <-"
+        missmatch = " <- "
+    if realClass != customClass:
+        missmatch = missmatch + "*"
+
     # Print the info:
-    print(" Sample:", i, "Predicted:", sampleClass, "Truth:", realClass,
+    print(" Sample:", i, "Predicted:", sampleClass, "Truth:", realClass, "Cus:", customClass,
           "(Proba: " + "{:.4f}".format(sampleProbability) + ")" + missmatch)
 
 # Get confusion matrix and its plot:
@@ -303,3 +322,29 @@ print("[INFO] --- [Post-Grid Search] Probability Threshold: " + "{:.4f}".format(
 # Print Accuracy report:
 accuracyReport = classification_report(testLabels, regressorPredictions)
 print("[INFO] --- [Post-Grid Search] Accuracy Report:", accuracyReport, sep="\n", end="\n\n")
+
+from sklearn.model_selection import cross_val_predict
+
+y_scores = cross_val_predict(logisticReggressorOptimized, trainFeatures, trainLabels, cv=3,
+                             method="decision_function")
+
+# Plot precision/recall graph:
+precisions, recalls, thresholds = precision_recall_curve(trainLabels, y_scores)
+threshold = 0
+
+plt.figure(figsize=(8, 4))  # extra code – it's not needed, just formatting
+plt.plot(thresholds, precisions[:-1], "b--", label="Precision", linewidth=2)
+plt.plot(thresholds, recalls[:-1], "g-", label="Recall", linewidth=2)
+plt.vlines(threshold, 0, 1.0, "k", "dotted", label="threshold")
+
+# extra code – this section just beautifies and saves Figure 3–5
+idx = (thresholds >= threshold).argmax()  # first index ≥ threshold
+plt.plot(thresholds[idx], precisions[idx], "bo")
+plt.plot(thresholds[idx], recalls[idx], "go")
+plt.grid()
+plt.xlabel("Threshold")
+plt.legend(loc="center right")
+plt.show()
+
+plt.plot(recalls, precisions, linewidth=2, label="Precision/Recall curve")
+plt.show()
