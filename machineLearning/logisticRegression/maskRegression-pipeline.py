@@ -1,3 +1,12 @@
+# File        :   maskRegression-pipeline.py
+# Version     :   1.2.0
+# Description :   [Train + Test]
+#                 Logistic regression example for "Mask Data" custom dataset, using pipelines.
+
+# Date:       :   May 22, 2023
+# Author      :   Ricardo Acevedo-Avila
+# License     :   Creative Commons CC0
+
 import numpy as np
 import pandas as pd
 import random
