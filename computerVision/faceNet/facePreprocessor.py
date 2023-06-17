@@ -1,3 +1,12 @@
+# File        :   facePreprocessor.py
+# Version     :   0.8.1
+# Description :   Detects and crops faces from images. To be used for 
+#                 faceNet training and testing.
+
+# Date:       :   Jun 16, 2023
+# Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
+# License     :   MIT
+
 import cv2
 import os
 from imutils import paths
@@ -18,6 +27,55 @@ def writeImage(imagePath, inputImage):
     print("Wrote Image: " + imagePath)
 
 
+# Check the variance of an image:
+def varianceDetector(inputImage, blurThreshold=100):
+    # BGR to gray:
+    grayImage = cv2.cvtColor(inputImage, cv2.COLOR_BGR2GRAY)
+    laplacianImage = cv2.Laplacian(grayImage, ddepth=cv2.CV_64F)
+    (mean, stdDev) = cv2.meanStdDev(laplacianImage)
+
+    variance = stdDev[0] * stdDev[0]
+
+    print("Variance", variance)
+
+    if variance <= blurThreshold:
+        return True
+    else:
+        return False
+
+
+# Checks eyes:
+def detectEyes(inputImage, imageSize, eyesDetector, displayImage):
+    # Resize image:
+    inputImage = cv2.resize(inputImage, imageSize)
+    grayImage = cv2.cvtColor(inputImage, cv2.COLOR_BGR2GRAY)
+
+    # Run face detector:
+    eyeROIs = eyesDetector.detectMultiScale(grayImage, scaleFactor=1.05, minNeighbors=30,
+                                            minSize=(30, 30),
+                                            # maxSize=(150, 150),
+                                            flags=cv2.CASCADE_SCALE_IMAGE)
+
+    totalEyes = len(eyeROIs)
+    print("Eyes Found: " + str(totalEyes))
+
+    if displayImage:
+
+        for currentROI in eyeROIs:
+            # Get the face ROI:
+            faceX = int(currentROI[0])
+            faceY = int(currentROI[1])
+            faceWidth = int(currentROI[2])
+            faceHeight = int(currentROI[3])
+
+            # Draw the face ROI:
+            color = faceDetectorColor[detectorIndex]
+            cv2.rectangle(inputImage, (faceX, faceY), ((faceX + faceWidth), (faceY + faceHeight)), color, 2)
+            showImage("Eyes", inputImage)
+
+    return totalEyes
+
+
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 datasetPath = projectPath + "celebrities"
@@ -33,9 +91,12 @@ faceDetectorColor = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (0, 255, 255)]
 
 # For testing, process just one class:
 processAll = False
-targetClass = "Will Smith"
+targetClass = "Bob Odenkirk"
 
 # Script Options:
+sampleSize = (32, 32)
+eyesSize = (300, 300)
+testVariance = False
 displayImages = True
 writeCropped = True
 
@@ -71,6 +132,10 @@ for cascadeFile in cascadeFiles:
 totalFaceDetectors = len(faceDetectors)
 print("[FaceNet Pre-processor] Face detectors loaded: " + str(totalFaceDetectors))
 
+# Load the eye detector cascade:
+cascadePath = projectPath + "cascades//" + "haarcascade_eye_3.xml"
+eyeDetector = cv2.CascadeClassifier(cascadePath)
+
 # Load images per class:
 for c, currentDirectory in enumerate(classesDirectories):
     # Images for this class:
@@ -95,6 +160,7 @@ for c, currentDirectory in enumerate(classesDirectories):
     # Pre-process each image:
     sampleCount = 0
     faceCount = 0
+    writtenImages = 0
 
     for currentPath in imagePaths:
 
@@ -172,11 +238,26 @@ for c, currentDirectory in enumerate(classesDirectories):
                 showImage("Face(s) Found", currentImageCopy)
                 showImage("Cropped Face", croppedFace)
 
+            # Check eyes:
+            totalEyes = detectEyes(croppedFace, eyesSize, eyeDetector, displayImages)
+
+            if testVariance:
+                # Resize image:
+                varianceInput = cv2.resize(croppedFace, sampleSize)
+                showImage("Variance Input", varianceInput)
+
+                # Check variance:
+                goodVariance = varianceDetector(croppedFace, 100)
+
             # Save image to outputDirectory:
-            if writeCropped:
-                imagePath = writePath + "sample-" + str(faceCount) + "-" + str(subfaceCount) + ".png"
-                writeImage(imagePath, croppedFace)
+            if totalEyes > 0:
+                if writeCropped:
+                    imagePath = writePath + "sample-" + str(faceCount) + "-" + str(subfaceCount) + ".png"
+                    writeImage(imagePath, croppedFace)
+                    writtenImages += 1
 
     detectionRate = (faceCount / totalImages) * 100
+    writtenRate = (writtenImages / totalImages) * 100
     print("[FaceNet Pre-processor] Detected faces rate: " + str(faceCount) + "/" + str(
-        totalImages) + " [" + f"{detectionRate:.4f}" + "%]")
+        totalImages) + " [" + f"{detectionRate:.4f}" + "%]" + " Written: " + str(writtenImages) + "/" + str(
+        totalImages) + " [" + f"{writtenRate:.4f}" + "%]")
