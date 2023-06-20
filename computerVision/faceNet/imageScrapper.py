@@ -77,7 +77,7 @@ def naturalSort(inputList, prefix, imgExt=".png"):
 targetSites = ["https://www.bing.com/images/search?q=bob+odenkirk&form=HDRSC3&first=1"]
 
 # Set output directory name:
-dirName = "Bob )denkirk"
+dirName = "Bob Odenkirk"
 
 coolDownTime = 1.0
 
