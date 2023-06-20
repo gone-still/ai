@@ -5,7 +5,7 @@
 
 #                 1 - Renames image files ascendingly
 #                 2 - Scraps a links list for images
-#                 3 - Removes image duplicates via hasing
+#                 3 - Removes image duplicates via hashing
 
 # Date:       :   Jun 19, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
