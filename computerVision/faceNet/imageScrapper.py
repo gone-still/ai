@@ -5,7 +5,7 @@
 
 #                 1 - Renames image files ascendingly
 #                 2 - Scraps a links list for images
-#                 3 - Removes image duplicates via hasing
+#                 3 - Removes image duplicates via hashing
 
 # Date:       :   Jun 19, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
@@ -77,7 +77,7 @@ def naturalSort(inputList, prefix, imgExt=".png"):
 targetSites = ["https://www.bing.com/images/search?q=bob+odenkirk&form=HDRSC3&first=1"]
 
 # Set output directory name:
-dirName = "Bob )denkirk"
+dirName = "Bob Odenkirk"
 
 coolDownTime = 1.0
 
