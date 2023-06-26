@@ -1,24 +1,25 @@
 # File        :   faceTrain.py
-# Version     :   0.5.2
+# Version     :   0.6.0
 # Description :   faceNet training script
 
-# Date:       :   Jun 13, 2023
+# Date:       :   Jun 25, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
 import cv2
+import math
 
 from imutils import paths
 from glob import glob
 import numpy as np
 import random
 
+from faceNet import faceNet
+
 from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import plot_model
 
 import matplotlib.pyplot as plt
-
-from faceNet import faceNet
 
 
 # Defines a re-sizable image window:
@@ -79,14 +80,15 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2):
     # Compute the batch size and the positive and negative pairs ratios:
     batchSize = n_positive * (1 + negative_ratio)
 
-    # The list of images (very row is a pair):
-    batchSamples = []
     # The numpy array of labels (positive=1, negative=-1)
     batchLabels = np.zeros((batchSize, 1))
 
     # This creates a generator, called by the neural network during
     # training...
     while True:
+
+        # The list of images (very row is a pair):
+        batchSamples = []
 
         # Randomly choose n positive examples from the pairs list:
         choicesArray = np.arange(0, totalPairs, 1, dtype=int)
@@ -158,26 +160,31 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2):
             # Got the two negative samples, thus the negative pair is ready:
             batchSamples.append(tempList)
             # This is a negative pair:
-            batchLabels[sampleIndex] = -1
+            batchLabels[sampleIndex] = 0
             # Increase the "batch processing" index:
             sampleIndex += 1
 
         # Make sure to shuffle list of samples and labels:
         batchSamples, batchLabels = shuffleSamples(batchSamples, batchLabels)
-        # random.shuffle(batchSamples)
 
         # python list To numpy array of numpy arrays...
-        batchSamples = np.array(batchSamples)
+        batchSamplesArray = np.array(batchSamples)
 
-        image1Arrays = batchSamples[:, 0:1]
-        image2Arrays = batchSamples[:, 1:2]
+        image1Arrays = batchSamplesArray[:, 0:1]
+        image2Arrays = batchSamplesArray[:, 1:2]
+
+        # Reshape the goddamn arrays: (drop "list dimension"):
+        tempDim = image1Arrays.shape
+
+        image1Arrays = image1Arrays.reshape(tempDim[0], tempDim[2], tempDim[3], tempDim[4])
+        image2Arrays = image2Arrays.reshape(tempDim[0], tempDim[2], tempDim[3], tempDim[4])
 
         # Show the batch:
         if displayImages:
             for h in range(6):
                 print(h, batchLabels[h])
-                showImage("[Batch] Sample 1", image1Arrays[h][0][0:imageHeight])
-                showImage("[Batch] Sample 2", image2Arrays[h][0][0:imageHeight])
+                showImage("[Batch] Sample 1", image1Arrays[h][0:imageHeight])
+                showImage("[Batch] Sample 2", image2Arrays[h][0:imageHeight])
 
         outDict = {"image1": image1Arrays, "image2": image2Arrays}, batchLabels
         # outDict = {"image1": batch[:, 0], "image2": batch[:, 1:genresVectorLength + 1]}, batch[:, -1]
@@ -190,23 +197,26 @@ outputPath = projectPath + "out//"
 datasetPath = outputPath + "cropped"
 
 # Script Options:
-randomSeed = 420
+randomSeed = 42069
 
 displayImages = False
-displaySampleBatch = True
+displaySampleBatch = False
 
-imageSize = (32, 32)
+imageSize = (64, 64)
 embeddingSize = 100
 
-samplesPerClass = 10
+imagesPerClass = 60
+pairsPerClass = 0.5 * (imagesPerClass ** 2.0) - (0.5 * imagesPerClass) - 7e-12
+pairsPerClass = math.ceil(pairsPerClass)
+# pairsPerClass = 1770  # 3321
 
 modelFilename = "facenet.model"
 loadModel = False
-saveModel = True
+saveModel = False
 
 # FaceNet training options:
 lr = 0.001
-trainingEpochs = 20
+trainingEpochs = 10
 nPositive = 1024
 
 # Load each image path of the dataset:
@@ -236,6 +246,8 @@ print("Total Classes:", totalClasses, classesImages)
 
 # Create the faces dataset as a dictionary:
 facesDataset = {}
+# Store the samples total here:
+totalDatasetSamples = 0
 
 # Load images per class:
 for c, currentDirectory in enumerate(classesDirectories):
@@ -251,13 +263,24 @@ for c, currentDirectory in enumerate(classesDirectories):
     # an array of samples for this class:
     facesDataset[currentClass] = []
 
-    for currentPath in imagePaths:
+    # Load the full images (-1) or just the amount indicated (!= -1)
+    if imagesPerClass != -1:
+        imagesRange = imagesPerClass
+    else:
+        imagesRange = totalImages
+
+    # Load the images:
+    for p in range(imagesRange):
+        # for currentPath in imagePaths:
+        # Get current path:
+        currentPath = imagePaths[p]
         # Load the image:
         currentImage = cv2.imread(currentPath)
 
         # Pre-process the image for FaceNet input:
         currentImage = cv2.resize(currentImage, imageSize)
-        # currentImage = currentImage.astype("float") / 255.0
+        # Scale:
+        currentImage = currentImage.astype("float") / 255.0
 
         # Show the input image:
         if displayImages:
@@ -265,6 +288,12 @@ for c, currentDirectory in enumerate(classesDirectories):
 
         # Into the list of samples:
         facesDataset[currentClass].append(currentImage)
+        # Image counter goes up +1:
+        totalDatasetSamples += 1
+
+# Get total samples in dataset:
+print("[FaceNet Training] Dataset Samples:", totalDatasetSamples)
+print("Loaded: [" + str(imagesPerClass) + "] images per class.")
 
 # Set random seed:
 random.seed(randomSeed)
@@ -275,12 +304,17 @@ np.random.seed(randomSeed)
 positivePairs = []
 
 for currentClass in facesDataset:
+    # Get images of current class:
+    classImages = facesDataset[currentClass]
+    # Shuffle images:
+    random.shuffle(classImages)
+
     # Get total samples for this class:
-    classSamples = len(facesDataset[currentClass])
+    classSamples = len(classImages)
 
     # processed samples counter:
     processedPairs = 0
-    for i in range(samplesPerClass):
+    for i in range(pairsPerClass):
 
         choices = list(range(0, classSamples - 1))
         randomSamples = [0, 0]
@@ -301,10 +335,11 @@ for currentClass in facesDataset:
         # Get images from dataset:
         for s in range(len(randomSamples)):
             sampleIndex = randomSamples[s]
-            currentImage = facesDataset[currentClass][sampleIndex]
+            currentImage = classImages[sampleIndex]
             # Show image
             if displayImages:
                 showImage(currentClass + " Pair: " + str(s), currentImage)
+
             # Into the temp list:
             tempList.append(currentImage)
 
@@ -320,18 +355,14 @@ for currentClass in facesDataset:
     print("Pairs Created: " + str(processedPairs) + ", Class: " + currentClass,
           "(" + str(classesDictionary[currentClass]) + ")", " Total: " + str(totalPairs))
 
-# Convert uint type to float:
-# positivePairs = np.array(positivePairs, dtype="float") / 255.0
-# positivePairs = np.array(positivePairs)
-
 # Shuffle the list of positive pairs:
-# random.shuffle(positivePairs)
-
-# Generate sample batch:
-x, y = next(generateBatch(pairs=positivePairs, n_positive=2, negative_ratio=2))
+random.shuffle(positivePairs)
 
 # Check batch info:
 if displaySampleBatch:
+
+    # Generate sample batch:
+    x, y = next(generateBatch(pairs=positivePairs, n_positive=5, negative_ratio=2))
 
     # Count total pos/neg samples:
     classCounters = [0, 0]
@@ -344,7 +375,7 @@ if displaySampleBatch:
         # Green border - positive pair
         # Red border - negative pair
 
-        if label == -1:
+        if label == 0:
             classText = "Negative"
             borderColor = (0, 0, 255)
             classCounters[1] += 1
@@ -359,7 +390,7 @@ if displaySampleBatch:
         # Get image dimensions:
         imageHeight, imageWidth = img1.shape[1:3]
         # Check the images:
-        imageList = [img1[0][0:imageHeight], img2[0][0:imageHeight]]
+        imageList = [img1[0:imageHeight], img2[0:imageHeight]]
 
         # Horizontally concatenate images:
         stackedImage = cv2.hconcat(imageList)
@@ -401,3 +432,49 @@ else:
     graphPath = outputPath + "model_plot.png"
     plot_model(model, to_file=graphPath, show_shapes=True, show_layer_names=True)
     print("[INFO] -- Model graph saved to: " + graphPath)
+
+    # # Set the samples' generator:
+    gen = generateBatch(pairs=positivePairs, n_positive=nPositive, negative_ratio=2)
+
+    # # Train the net:
+    # # len(pairs) / 1024 = 754.68 (755)
+    H = model.fit(gen,
+                  # validation_split=0.2,
+                  steps_per_epoch=len(positivePairs) // nPositive,
+                  epochs=trainingEpochs,
+                  verbose=1)
+
+    print("Model Fitted...")
+    #
+    # # Check if model needs to be saved:
+    # if saveModel:
+    #     # Set model path:
+    #     modelPath = outputPath + modelFilename
+    #     print("[INFO] -- Saving model to: " + str(modelPath))
+    #     model.save(modelPath)
+    #
+    # Plot the training loss and accuracy
+    plt.style.use("ggplot")
+    plt.figure()
+
+    # Get the historical data:
+    N = np.arange(0, trainingEpochs)
+
+    history_dict = H.history
+    print(history_dict.keys())
+
+    # Plot values:
+    plt.plot(N, H.history["loss"], label="train_loss")
+    # plt.plot(N, H.history["val_loss"], label="val_loss")
+    plt.plot(N, H.history["accuracy"], label="train_acc")
+    # plt.plot(N, H.history["val_accuracy"], label="val_acc")
+    plt.title("Training Loss and Accuracy on Dataset")
+    plt.xlabel("Epoch #")
+    plt.ylabel("Loss/Accuracy")
+    plt.legend(loc="lower left")
+
+    # Save plot to disk:
+    plotPath = projectPath + "lossGraph.png"
+    print("[INFO] -- Saving model loss plot to:" + plotPath)
+    plt.savefig(plotPath)
+    plt.show()
