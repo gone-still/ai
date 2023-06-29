@@ -395,15 +395,6 @@ for currentClass in facesDataset:
 # Shuffle the list of positive pairs:
 random.shuffle(positivePairs)
 
-# f = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-# listSize = len(f)
-# listEnd = int(0.8 * listSize)
-#
-# a = f[0:listEnd]
-# sliceSize = 2
-# b = f[listEnd:-sliceSize]
-# u = f[listEnd + sliceSize:]
-
 # Split the pairs for train and validation,
 # Training:
 totalPairs = len(positivePairs)
