@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.6.0
+# Version     :   0.7.2
 # Description :   faceNet training script
 
-# Date:       :   Jun 25, 2023
+# Date:       :   Jun 28, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -20,6 +20,9 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import plot_model
 
 import matplotlib.pyplot as plt
+
+import tensorflow as tf
+from tensorflow.keras.datasets import mnist
 
 
 # Defines a re-sizable image window:
@@ -73,7 +76,7 @@ def shuffleSamples(batchSamples, batchLabels):
 
 
 # Batch generator of positive & negatives pairs:
-def generateBatch(pairs, n_positive=2, negative_ratio=2):
+def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False):
     # Get total number of pairs:
     totalPairs = len(pairs)
 
@@ -194,44 +197,66 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2):
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 outputPath = projectPath + "out//"
-datasetPath = outputPath + "cropped"
+datasetPath = projectPath + "mnist//train"  # outputPath + "cropped"
 
 # Script Options:
-randomSeed = 42069
+trainSplit = 0.8  # Dataset split for training
+validationSize = -1  # Use this amount of samples from the validation split for validation, -1 uses the full validation split
+validationStepsPercent = 1.0
+
+# Generator generates this amount of positive pairs for training [0] and validation [1]:
+nPositive = (512, 512)
+
+randomSeed = 42
 
 displayImages = False
 displaySampleBatch = False
 
-imageSize = (64, 64)
-embeddingSize = 100
+# CNN image processing shape:
+imageDims = (64, 64, 1)
+resizeInterpolation = cv2.INTER_NEAREST  # cv2.INTER_AREA
+embeddingSize = 50
 
-imagesPerClass = 60
+imagesPerClass = 60  # Use this amount of images per class... -1 uses the whole available images per class
+
+# Create this amount of unique positive pairs:
 pairsPerClass = 0.5 * (imagesPerClass ** 2.0) - (0.5 * imagesPerClass) - 7e-12
 pairsPerClass = math.ceil(pairsPerClass)
 # pairsPerClass = 1770  # 3321
 
-modelFilename = "facenet.model"
-loadModel = False
-saveModel = False
+weightsFilename = "facenetWeights.h5"
+loadWeights = False
+saveWeights = True
 
 # FaceNet training options:
-lr = 0.001
-trainingEpochs = 10
-nPositive = 1024
+lr = 0.0017
+trainingEpochs = 40
+
+# Print tf info:
+print("Tensorflow ver:", tf.__version__)
 
 # Load each image path of the dataset:
 print("[FaceNet Training] Loading images...")
+
+# Store the samples total here:
+totalDatasetSamples = 0
+
+# The classes dictionary:
+classesDictionary = {}
+
+# Create the faces dataset as a dictionary:
+facesDataset = {}
 
 # Get list of full subdirectories paths:
 classesDirectories = glob(datasetPath + "//*//", recursive=True)
 classesDirectories.sort()
 
 # Trim root directory, leave only subdirectories names (these will be the classes):
+print(datasetPath)
 rootLength = len(datasetPath)
 classesImages = [dirName[rootLength + 1:-1] for dirName in classesDirectories]
 
 # Create classes dictionary:
-classesDictionary = {}
 classCounter = 0
 for c in classesImages:
     if c not in classesDictionary:
@@ -243,11 +268,6 @@ print(classesDictionary)
 # Get total classes:
 totalClasses = len(classesImages)
 print("Total Classes:", totalClasses, classesImages)
-
-# Create the faces dataset as a dictionary:
-facesDataset = {}
-# Store the samples total here:
-totalDatasetSamples = 0
 
 # Load images per class:
 for c, currentDirectory in enumerate(classesDirectories):
@@ -274,13 +294,28 @@ for c, currentDirectory in enumerate(classesDirectories):
         # for currentPath in imagePaths:
         # Get current path:
         currentPath = imagePaths[p]
+
         # Load the image:
         currentImage = cv2.imread(currentPath)
 
+        # Should it be converted to grayscale (one channel):
+        targetDepth = imageDims[-1]
+
+        if targetDepth != 3:
+            # To Gray:
+            currentImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2GRAY)
+
         # Pre-process the image for FaceNet input:
-        currentImage = cv2.resize(currentImage, imageSize)
+        newSize = imageDims[0:2]
+        # Resize:
+        currentImage = cv2.resize(currentImage, newSize, resizeInterpolation)
+
         # Scale:
         currentImage = currentImage.astype("float") / 255.0
+
+        if targetDepth == 1:
+            # Add "color" dimension:
+            currentImage = np.expand_dims(currentImage, axis=-1)
 
         # Show the input image:
         if displayImages:
@@ -301,6 +336,8 @@ np.random.seed(randomSeed)
 
 # Build the positive pairs dataset:
 # Stores: (Class A - Sample 1, Class A - Sample 2, Class Code)
+print("Generating: ", pairsPerClass, " pairs per class...")
+
 positivePairs = []
 
 for currentClass in facesDataset:
@@ -316,7 +353,7 @@ for currentClass in facesDataset:
     processedPairs = 0
     for i in range(pairsPerClass):
 
-        choices = list(range(0, classSamples - 1))
+        choices = list(range(0, classSamples))
         randomSamples = [0, 0]
 
         # Randomly choose a first sample:
@@ -352,79 +389,143 @@ for currentClass in facesDataset:
 
     # Done creating positive pairs for this class:
     totalPairs = len(positivePairs)
-    print("Pairs Created: " + str(processedPairs) + ", Class: " + currentClass,
+    print("[" + currentClass + "]" + " Pairs Created: " + str(processedPairs) + ", Class: " + currentClass,
           "(" + str(classesDictionary[currentClass]) + ")", " Total: " + str(totalPairs))
 
 # Shuffle the list of positive pairs:
 random.shuffle(positivePairs)
 
+# f = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+# listSize = len(f)
+# listEnd = int(0.8 * listSize)
+#
+# a = f[0:listEnd]
+# sliceSize = 2
+# b = f[listEnd:-sliceSize]
+# u = f[listEnd + sliceSize:]
+
+# Split the pairs for train and validation,
+# Training:
+totalPairs = len(positivePairs)
+trainSize = int(trainSplit * totalPairs)
+print("Train dataset has: " + str(trainSize) + " (" + str(trainSplit) + ") samples out of: " + str(totalPairs))
+
+# Validation:
+trainPairs = positivePairs[0:trainSize]
+listSize = totalPairs - trainSize
+
+if validationSize == -1:
+    # Use all remaining samples:
+    validationPairs = positivePairs[trainSize:]
+else:
+    # Slice the number of samples requested:
+    listStart = trainSize
+    listEnd = trainSize + validationSize
+    validationPairs = positivePairs[listStart:listEnd]
+
+# Check out some metrics:
+validationSetSize = len(validationPairs)
+validationSplit = validationSetSize / listSize
+
+print("Validation dataset has: " + str(validationSetSize) + " (" + str(validationSplit) + ") samples out of: " + str(
+    listSize))
+
 # Check batch info:
 if displaySampleBatch:
 
     # Generate sample batch:
-    x, y = next(generateBatch(pairs=positivePairs, n_positive=5, negative_ratio=2))
+    batchesNames = ["Train", "Validation"]
+    trainBatch = next(generateBatch(pairs=trainPairs, n_positive=5, negative_ratio=2, displayImages=False))
+    validationBatch = next(generateBatch(pairs=validationPairs, n_positive=5, negative_ratio=2, displayImages=False))
 
-    # Count total pos/neg samples:
-    classCounters = [0, 0]
+    batchDataset = [trainBatch, validationBatch]
 
-    # For every batch sample, get its pair and label and display the info in a
-    # nice new window.
-    for i, (label, img1, img2) in enumerate(zip(y, x["image1"], x["image2"])):
+    for b in range(len(batchDataset)):
+        currentBatch = batchesNames[b]
+        x, y = batchDataset[b]
 
-        # Set figure title and border:
-        # Green border - positive pair
-        # Red border - negative pair
+        # Count total pos/neg samples:
+        classCounters = [0, 0]
 
-        if label == 0:
-            classText = "Negative"
-            borderColor = (0, 0, 255)
-            classCounters[1] += 1
-        else:
-            borderColor = (0, 255, 0)
-            classText = "Positive"
-            classCounters[0] += 1
+        # For every batch sample, get its pair and label and display the info in a
+        # nice new window.
+        for i, (label, img1, img2) in enumerate(zip(y, x["image1"], x["image2"])):
 
-        # Check the info:
-        print(i, "Pair Label:", label, classText)
+            # Set figure title and border:
+            # Green border - positive pair
+            # Red border - negative pair
 
-        # Get image dimensions:
-        imageHeight, imageWidth = img1.shape[1:3]
-        # Check the images:
-        imageList = [img1[0:imageHeight], img2[0:imageHeight]]
+            if label == 0:
+                classText = "Negative"
+                borderColor = (0, 0, 255)
+                classCounters[1] += 1
+            else:
+                borderColor = (0, 255, 0)
+                classText = "Positive"
+                classCounters[0] += 1
 
-        # Horizontally concatenate images:
-        stackedImage = cv2.hconcat(imageList)
-        (height, width) = stackedImage.shape[0:2]
+            # Check the info:
+            print(currentBatch, i, "Pair Label:", label, classText)
 
-        # Draw rectangle:
-        cv2.rectangle(stackedImage, (0, 0), (width - 1, height - 1), borderColor, 1)
+            # Get image dimensions:
+            imageHeight, imageWidth = img1.shape[1:3]
+            # Check the images:
+            imageList = [img1[0:imageHeight], img2[0:imageHeight]]
 
-        # Show the positive/negative pair of images:
-        showImage("[Generator] Sample", stackedImage)
+            # Horizontally concatenate images:
+            stackedImage = cv2.hconcat(imageList)
+            imageDimensions = len(stackedImage.shape)
 
-    # Print the total count per class:
-    print("Total Positives: ", classCounters[0], " Total Negatives: ", classCounters[1])
+            if imageDimensions < 3:
+                (height, width) = stackedImage.shape
+                depth = 1
+            else:
+                (height, width, depth) = stackedImage.shape
+
+            # Get image type:
+            imageType = stackedImage.dtype
+
+            # Check type and convert to uint8:
+            if imageType != np.dtype("uint8"):
+                stackedImage = stackedImage * 255.0
+                stackedImage = stackedImage.clip(0, 255).astype(np.uint8)
+
+                # Convert channels:
+                if depth != 3:
+                    stackedImage = cv2.cvtColor(stackedImage, cv2.COLOR_GRAY2BGR)
+
+            # Draw rectangle:
+            cv2.rectangle(stackedImage, (0, 0), (width - 1, height - 1), borderColor, 1)
+
+            # Show the positive/negative pair of images:
+            showImage("[" + currentBatch + " Generator] Sample", stackedImage)
+
+        # Print the total count per class:
+        print(currentBatch, "Total Positives: ", classCounters[0], " Total Negatives: ", classCounters[1])
+
+# Set the image dimensions:
+imageHeight = imageDims[0]
+imageWidth = imageDims[1]
+imageChannels = imageDims[2]
+
+# Build the faceNet model:
+model = faceNet.build(height=imageDims[0], width=imageDims[1], depth=imageDims[2], namesList=["image1", "image2"],
+                      embeddingDim=embeddingSize, alpha=lr, epochs=trainingEpochs)
 
 # Load or train model from scratch:
-if loadModel:
+if loadWeights:
+
     # Get model path + name:
-    modelPath = projectPath + modelFilename
+    modelPath = outputPath + weightsFilename
     print("[INFO] -- Loading faceNet Model from: " + modelPath)
     # Load model:
-    model = load_model(modelPath)
+    model.load_weights(modelPath)
     # Get summary:
     model.summary()
+
 else:
+
     print("[INFO] -- Creating faceNet Model from scratch:")
-
-    # Set the image dimensions:
-    imageHeight = imageSize[0]
-    imageWidth = imageSize[1]
-    imageChannels = 3
-
-    # Build the faceNet model:
-    model = faceNet.build(height=imageHeight, width=imageWidth, depth=imageChannels, embeddingDim=embeddingSize,
-                          alpha=lr, epochs=trainingEpochs)
     # Get faceNet summary:
     model.summary()
 
@@ -433,26 +534,36 @@ else:
     plot_model(model, to_file=graphPath, show_shapes=True, show_layer_names=True)
     print("[INFO] -- Model graph saved to: " + graphPath)
 
-    # # Set the samples' generator:
-    gen = generateBatch(pairs=positivePairs, n_positive=nPositive, negative_ratio=2)
+    # Set the test/validation datasets portions:
+    stepsPerEpoch = len(trainPairs) // nPositive[0]
+    validationSteps = len(validationPairs) // nPositive[1]
+    # validationSteps = int(validationStepsPercent * stepsPerEpoch)  # len(testPairs) // nPositive
+
+    print("Steps per epoch -> Training: " + str(stepsPerEpoch) + " Validation: " + str(validationSteps))
+
+    # Set the samples' generator:
+    trainGen = generateBatch(pairs=trainPairs, n_positive=nPositive[0], negative_ratio=2)
+    validationGen = generateBatch(pairs=validationPairs, n_positive=nPositive[1], negative_ratio=2)
 
     # # Train the net:
     # # len(pairs) / 1024 = 754.68 (755)
-    H = model.fit(gen,
-                  # validation_split=0.2,
-                  steps_per_epoch=len(positivePairs) // nPositive,
+    H = model.fit(trainGen,
+                  validation_data=validationGen,
+                  steps_per_epoch=stepsPerEpoch,
+                  validation_steps=validationSteps,
                   epochs=trainingEpochs,
                   verbose=1)
 
     print("Model Fitted...")
     #
     # # Check if model needs to be saved:
-    # if saveModel:
-    #     # Set model path:
-    #     modelPath = outputPath + modelFilename
-    #     print("[INFO] -- Saving model to: " + str(modelPath))
-    #     model.save(modelPath)
-    #
+    if saveWeights:
+        # Set model path:
+        modelPath = outputPath + weightsFilename
+        print("[INFO] -- Saving model to: " + str(modelPath))
+        # model.save(modelPath)
+        model.save_weights(modelPath)
+
     # Plot the training loss and accuracy
     plt.style.use("ggplot")
     plt.figure()
@@ -465,16 +576,16 @@ else:
 
     # Plot values:
     plt.plot(N, H.history["loss"], label="train_loss")
-    # plt.plot(N, H.history["val_loss"], label="val_loss")
+    plt.plot(N, H.history["val_loss"], label="val_loss")
     plt.plot(N, H.history["accuracy"], label="train_acc")
-    # plt.plot(N, H.history["val_accuracy"], label="val_acc")
+    plt.plot(N, H.history["val_accuracy"], label="val_acc")
     plt.title("Training Loss and Accuracy on Dataset")
     plt.xlabel("Epoch #")
     plt.ylabel("Loss/Accuracy")
     plt.legend(loc="lower left")
 
     # Save plot to disk:
-    plotPath = projectPath + "lossGraph.png"
+    plotPath = projectPath + "out//" + "lossGraph.png"
     print("[INFO] -- Saving model loss plot to:" + plotPath)
     plt.savefig(plotPath)
     plt.show()

@@ -1,8 +1,8 @@
 # File        :   faceTest.py
-# Version     :   0.8.5
+# Version     :   0.8.7
 # Description :   faceNet test script
 
-# Date:       :   Jun 27, 2023
+# Date:       :   Jun 28, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -27,20 +27,20 @@ def showImage(imageName, inputImage):
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 outputPath = projectPath + "out//"
-datasetPath = projectPath + "mnist//test//"
+datasetPath = projectPath + "mnist//test"
 weightsFilename = "facenetWeights.h5"
 
 # Total positive pairs & negative pairs to be tested:
-datasetSize = 10
-positivePortion = 0.8
+datasetSize = 20
+positivePortion = 0.3
 
 randomSeed = 42069
 pairsPerClass = 10
-displayImages = True
+displayImages = False
 
 # Set the DNN's parameters:
 imageDims = (64, 64, 1)
-embeddingSize = 100
+embeddingSize = 50
 lr = 0.002
 trainingEpochs = 1
 
@@ -60,7 +60,7 @@ classesDirectories.sort()
 
 # Trim root directory, leave only subdirectories names (these will be the classes):
 rootLength = len(datasetPath)
-classesImages = [dirName[rootLength - 1:-1] for dirName in classesDirectories]
+classesImages = [dirName[rootLength + 1:-1] for dirName in classesDirectories]
 
 # The classes dictionary:
 classesDictionary = {}
@@ -325,7 +325,7 @@ for b in range(len(testBatch)):
     currentPrediction = predictions[0][0]
 
     # Set label color:
-    if testLabel == 0:
+    if currentPrediction < 0.5:
         classText = "Negative"
         borderColor = (0, 0, 255)
     else:
@@ -333,7 +333,7 @@ for b in range(len(testBatch)):
         classText = "Positive"
 
     # Check the info:
-    print(b, "Class: ", classText, " Predicted: ", currentPrediction)
+    print(b, "Class: ", classText, " Predicted: ", f'{currentPrediction:.4f}', " Real: ", testLabel)
 
     # Compose pair image
     # Check the images:
