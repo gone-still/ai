@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.7.2
+# Version     :   0.8.0
 # Description :   faceNet training script
 
-# Date:       :   Jun 28, 2023
+# Date:       :   Jul 01, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -105,6 +105,10 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False):
             randomSample = positiveSamples[i]
             currentSample = pairs[randomSample]
 
+            # Scale data:
+            # currentSample[0] = currentSample[0].astype("float") / 255.0
+            # currentSample[1] = currentSample[1].astype("float") / 255.0
+
             # Check images (if proper data type):
             if displayImages:
                 showImage("[Positive] Sample 1", currentSample[0])
@@ -147,6 +151,9 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False):
                         # Randomly choose one of the two images:
                         randomChoice = random.randint(0, 1)
                         randomSample = randomRow[randomChoice]
+
+                        # Scale data:
+                        # randomSample = randomSample.astype("float") / 255.0
 
                         # Show the random sample:
                         if displayImages:
@@ -197,7 +204,7 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False):
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 outputPath = projectPath + "out//"
-datasetPath = projectPath + "mnist//train"  # outputPath + "cropped"
+datasetPath = outputPath + "cropped"
 
 # Script Options:
 trainSplit = 0.8  # Dataset split for training
@@ -205,19 +212,21 @@ validationSize = -1  # Use this amount of samples from the validation split for 
 validationStepsPercent = 1.0
 
 # Generator generates this amount of positive pairs for training [0] and validation [1]:
-nPositive = (512, 512)
+nPositive = (256, 256)
 
-randomSeed = 42
+randomSeed = 42069
 
 displayImages = False
 displaySampleBatch = False
 
 # CNN image processing shape:
-imageDims = (64, 64, 1)
-resizeInterpolation = cv2.INTER_NEAREST  # cv2.INTER_AREA
-embeddingSize = 50
+imageDims = (100, 100, 3)
+resizeInterpolation = cv2.INTER_AREA
 
-imagesPerClass = 60  # Use this amount of images per class... -1 uses the whole available images per class
+embeddingSize = 256
+# Use this amount of images per class... -1 uses the whole available images per class,
+# should be <= than the class with the least number of samples:
+imagesPerClass = 61
 
 # Create this amount of unique positive pairs:
 pairsPerClass = 0.5 * (imagesPerClass ** 2.0) - (0.5 * imagesPerClass) - 7e-12
@@ -229,7 +238,7 @@ loadWeights = False
 saveWeights = True
 
 # FaceNet training options:
-lr = 0.0017
+lr = 0.001 # 0.0007
 trainingEpochs = 40
 
 # Print tf info:
@@ -271,12 +280,16 @@ print("Total Classes:", totalClasses, classesImages)
 
 # Load images per class:
 for c, currentDirectory in enumerate(classesDirectories):
+
     # Images for this class:
     imagePaths = list(paths.list_images(currentDirectory))
     totalImages = len(imagePaths)
 
+    # Shuffle list:
+    # random.shuffle(imagePaths)
+
     currentClass = classesImages[c]
-    print("[FaceNet Training] Class: " + currentClass + " Samples: " + str(totalImages))
+    print("[FaceNet Training] Class: " + currentClass + " Available Samples: " + str(totalImages))
 
     # Create dictionary key:
     # Each key is a class name associated with
@@ -325,6 +338,9 @@ for c, currentDirectory in enumerate(classesDirectories):
         facesDataset[currentClass].append(currentImage)
         # Image counter goes up +1:
         totalDatasetSamples += 1
+
+    # Print the total of samples used:
+    print("[FaceNet Training] Class: " + currentClass + " Used Samples: " + str(imagesRange) + "/" + str(totalImages))
 
 # Get total samples in dataset:
 print("[FaceNet Training] Dataset Samples:", totalDatasetSamples)
@@ -504,9 +520,9 @@ if displaySampleBatch:
         print(currentBatch, "Total Positives: ", classCounters[0], " Total Negatives: ", classCounters[1])
 
 # Set the image dimensions:
-imageHeight = imageDims[0]
-imageWidth = imageDims[1]
-imageChannels = imageDims[2]
+# imageHeight = imageDims[0]
+# imageWidth = imageDims[1]
+# imageChannels = imageDims[2]
 
 # Build the faceNet model:
 model = faceNet.build(height=imageDims[0], width=imageDims[1], depth=imageDims[2], namesList=["image1", "image2"],

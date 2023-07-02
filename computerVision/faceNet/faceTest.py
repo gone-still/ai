@@ -1,8 +1,8 @@
 # File        :   faceTest.py
-# Version     :   0.8.7
+# Version     :   0.9.0
 # Description :   faceNet test script
 
-# Date:       :   Jun 28, 2023
+# Date:       :   Jul 01, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -15,6 +15,8 @@ import numpy as np
 import random
 
 from faceNet import faceNet
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, precision_score, recall_score
+from matplotlib import pyplot as plt
 
 
 # Defines a re-sizable image window:
@@ -27,21 +29,27 @@ def showImage(imageName, inputImage):
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 outputPath = projectPath + "out//"
-datasetPath = projectPath + "mnist//test"
+datasetPath = outputPath + "cropped"
 weightsFilename = "facenetWeights.h5"
 
 # Total positive pairs & negative pairs to be tested:
-datasetSize = 20
-positivePortion = 0.3
+startImage = 60  # Start at this image for test
+maxImages = 30  # Use all remaining images for test
+datasetSize = 150
+positivePortion = 0.5
 
-randomSeed = 42069
+randomSeed = 42
 pairsPerClass = 10
+
 displayImages = False
+showClassified = True
 
 # Set the DNN's parameters:
-imageDims = (64, 64, 1)
-embeddingSize = 50
-lr = 0.002
+imageDims = (100, 100, 3)
+resizeInterpolation = cv2.INTER_AREA
+
+embeddingSize = 256
+lr = 0.001
 trainingEpochs = 1
 
 # Set the image dimensions:
@@ -91,8 +99,31 @@ for c, currentDirectory in enumerate(classesDirectories):
     imagePaths = list(paths.list_images(currentDirectory))
     totalImages = len(imagePaths)
 
+    # Slice test images:
+    if maxImages == -1:
+        imagePaths = imagePaths[startImage:]
+    else:
+        # Compute last image:
+        samplesDiff = totalImages - startImage
+        if samplesDiff < maxImages:
+            endImage = totalImages
+        else:
+            endImage = startImage + maxImages
+        imagePaths = imagePaths[startImage:endImage]
+
+    # Get class:
     currentClass = classesImages[c]
-    print("[FaceNet Training] Class: " + currentClass + " Samples: " + str(totalImages))
+    testSamples = len(imagePaths)
+
+    # Check for minimum number of necessary images to create
+    # a unique pair:
+    if testSamples < 2:
+        print(
+            "[FaceNet Test] [X] Skipping class: " + currentClass + " due to insufficient samples to build pairs. Test Samples: " + str(
+                testSamples))
+        continue
+
+    print("[FaceNet Test] Class: " + currentClass + " Using: " + str(testSamples) + " samples for testing...")
 
     # Create dictionary key:
     # Each key is a class name associated with
@@ -100,32 +131,36 @@ for c, currentDirectory in enumerate(classesDirectories):
     testDataset[currentClass] = []
 
     # Load the full images:
-    imagesRange = totalImages
+    imagesRange = testSamples
 
     # Load the images:
     for p in range(imagesRange):
         # for currentPath in imagePaths:
         # Get current path:
         currentPath = imagePaths[p]
+
         # Load the image:
         currentImage = cv2.imread(currentPath)
-        j = currentImage.dtype
+
+        # Should it be converted to grayscale (one channel):
+        targetDepth = imageDims[-1]
+
+        if targetDepth != 3:
+            # To Gray:
+            currentImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2GRAY)
 
         # Pre-process the image for FaceNet input:
         newSize = imageDims[0:2]
 
-        # To Gray:
-        currentImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2GRAY)
-        # _, currentImage = cv2.threshold(currentImage, 0, 255, cv2.THRESH_OTSU)
-
         # Resize:
-        currentImage = cv2.resize(currentImage, newSize, interpolation=cv2.INTER_NEAREST)
+        currentImage = cv2.resize(currentImage, newSize, resizeInterpolation)
 
         # Scale:
         currentImage = currentImage.astype("float") / 255.0
 
-        # Add "color" dimension:
-        currentImage = np.expand_dims(currentImage, axis=-1)
+        if targetDepth == 1:
+            # Add "color" dimension:
+            currentImage = np.expand_dims(currentImage, axis=-1)
 
         # Show the input image:
         if displayImages:
@@ -305,6 +340,9 @@ model.load_weights(weightsFilePath)
 # Get summary:
 model.summary()
 
+yPred = []
+yTest = []
+
 # Test the batch:
 for b in range(len(testBatch)):
     # Get current pair & label:
@@ -326,14 +364,22 @@ for b in range(len(testBatch)):
 
     # Set label color:
     if currentPrediction < 0.5:
+        predictedLabel = 0
         classText = "Negative"
         borderColor = (0, 0, 255)
     else:
+        predictedLabel = 1
         borderColor = (0, 255, 0)
         classText = "Positive"
 
     # Check the info:
+    text = str(testLabel) + " : " + f'{currentPrediction:.4f}'
     print(b, "Class: ", classText, " Predicted: ", f'{currentPrediction:.4f}', " Real: ", testLabel)
+
+    # Store the info for CF plotting:
+    yTest.append(testLabel)
+    # Store the info for CF plotting:
+    yPred.append(predictedLabel)
 
     # Compose pair image
     # Check the images:
@@ -364,5 +410,49 @@ for b in range(len(testBatch)):
     # Draw rectangle:
     cv2.rectangle(stackedImage, (0, 0), (width - 1, height - 1), borderColor, 1)
 
+    # Resize image:
+    imgHeight, imgWidth = stackedImage.shape[0:2]
+    aspectRatio = imgHeight / imgWidth
+
+    # Up-scaling using original aspect ratio:
+    displaySize = 150
+    newWidth = int(displaySize // aspectRatio)
+
+    stackedImage = cv2.resize(stackedImage, (newWidth, displaySize), interpolation=cv2.INTER_LINEAR)
+
+    # Create text strip:
+    stripHeight = int(0.2 * displaySize)
+    stripShape = (stripHeight, newWidth, 3)
+    textStrip = np.zeros(shape=stripShape, dtype="uint8")
+
+    # Text & color:
+    if predictedLabel == testLabel:
+        if testLabel == 1:
+            textColor = (0, 255, 0)
+        else:
+            textColor = (0, 0, 255)
+    else:
+        text = text + " [x]"
+        textColor = (0, 128, 255)
+
+    cv2.putText(textStrip, text, (5, 22), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=textColor, thickness=1)
+    # showImage("text strip", textStrip)
+
+    # Vertically concatenate images:
+    stackedImage = cv2.vconcat([stackedImage, textStrip])
+
     # Show the positive/negative pair of images:
-    showImage("Test Sample", stackedImage)
+    if showClassified:
+        showImage("Test Sample", stackedImage)
+
+# Compute precision & recall:
+modelPrecision = precision_score(yTest, yPred)
+modelRecall = recall_score(yTest, yPred)
+print((modelPrecision, modelRecall))
+
+# Compute confusion matrix:
+result = confusion_matrix(yTest, yPred, normalize='pred')
+print(result)
+disp = ConfusionMatrixDisplay(confusion_matrix=result)
+disp.plot()
+plt.show()
