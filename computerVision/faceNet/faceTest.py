@@ -1,22 +1,10 @@
 # File        :   faceTest.py
-# Version     :   0.9.0
+# Version     :   0.9.2
 # Description :   faceNet test script
 
-# Date:       :   Jul 01, 2023
+# Date:       :   Jul 03, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
-
-import cv2
-import math
-
-from imutils import paths
-from glob import glob
-import numpy as np
-import random
-
-from faceNet import faceNet
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, precision_score, recall_score
-from matplotlib import pyplot as plt
 
 
 # Defines a re-sizable image window:
@@ -33,13 +21,13 @@ datasetPath = outputPath + "cropped"
 weightsFilename = "facenetWeights.h5"
 
 # Total positive pairs & negative pairs to be tested:
-startImage = 60  # Start at this image for test
+startImage = 51  # Start at this image for test
 maxImages = 30  # Use all remaining images for test
 datasetSize = 150
-positivePortion = 0.5
+positivePortion = 0.7
 
-randomSeed = 42
-pairsPerClass = 10
+randomSeed = 420
+pairsPerClass = 200
 
 displayImages = False
 showClassified = True
@@ -48,8 +36,8 @@ showClassified = True
 imageDims = (100, 100, 3)
 resizeInterpolation = cv2.INTER_AREA
 
-embeddingSize = 256
-lr = 0.001
+embeddingSize = 512
+lr = 0.002
 trainingEpochs = 1
 
 # Set the image dimensions:

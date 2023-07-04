@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.8.0
+# Version     :   0.8.2
 # Description :   faceNet training script
 
-# Date:       :   Jul 01, 2023
+# Date:       :   Jul 03, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -212,9 +212,9 @@ validationSize = -1  # Use this amount of samples from the validation split for 
 validationStepsPercent = 1.0
 
 # Generator generates this amount of positive pairs for training [0] and validation [1]:
-nPositive = (256, 256)
+nPositive = (128, 128)
 
-randomSeed = 42069
+randomSeed = 420
 
 displayImages = False
 displaySampleBatch = False
@@ -223,10 +223,10 @@ displaySampleBatch = False
 imageDims = (100, 100, 3)
 resizeInterpolation = cv2.INTER_AREA
 
-embeddingSize = 256
+embeddingSize = 512
 # Use this amount of images per class... -1 uses the whole available images per class,
 # should be <= than the class with the least number of samples:
-imagesPerClass = 61
+imagesPerClass = 51
 
 # Create this amount of unique positive pairs:
 pairsPerClass = 0.5 * (imagesPerClass ** 2.0) - (0.5 * imagesPerClass) - 7e-12
@@ -238,8 +238,8 @@ loadWeights = False
 saveWeights = True
 
 # FaceNet training options:
-lr = 0.001 # 0.0007
-trainingEpochs = 40
+lr = 0.0015  # 0.0007
+trainingEpochs = 30
 
 # Print tf info:
 print("Tensorflow ver:", tf.__version__)
@@ -410,6 +410,15 @@ for currentClass in facesDataset:
 
 # Shuffle the list of positive pairs:
 random.shuffle(positivePairs)
+
+# f = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+# listSize = len(f)
+# listEnd = int(0.8 * listSize)
+#
+# a = f[0:listEnd]
+# sliceSize = 2
+# b = f[listEnd:-sliceSize]
+# u = f[listEnd + sliceSize:]
 
 # Split the pairs for train and validation,
 # Training:
@@ -586,6 +595,7 @@ else:
     plt.plot(N, H.history["val_loss"], label="val_loss")
     plt.plot(N, H.history["accuracy"], label="train_acc")
     plt.plot(N, H.history["val_accuracy"], label="val_acc")
+    # plt.plot(N, H.history["lr"], label="learning_rate")
     plt.title("Training Loss and Accuracy on Dataset")
     plt.xlabel("Epoch #")
     plt.ylabel("Loss/Accuracy")
