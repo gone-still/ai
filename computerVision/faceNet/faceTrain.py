@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.8.2
+# Version     :   0.8.5
 # Description :   faceNet training script
 
-# Date:       :   Jul 03, 2023
+# Date:       :   Jul 04, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -226,10 +226,13 @@ resizeInterpolation = cv2.INTER_AREA
 embeddingSize = 512
 # Use this amount of images per class... -1 uses the whole available images per class,
 # should be <= than the class with the least number of samples:
-imagesPerClass = 51
+imagesPerClass = 55
+
+# Vertically random-flip samples:
+randomFlip = True
 
 # Create this amount of unique positive pairs:
-pairsPerClass = 0.5 * (imagesPerClass ** 2.0) - (0.5 * imagesPerClass) - 7e-12
+pairsPerClass = (0.5 * (imagesPerClass ** 2.0) - (0.5 * imagesPerClass) - 7e-12) + 60
 pairsPerClass = math.ceil(pairsPerClass)
 # pairsPerClass = 1770  # 3321
 
@@ -238,14 +241,18 @@ loadWeights = False
 saveWeights = True
 
 # FaceNet training options:
-lr = 0.0015  # 0.0007
-trainingEpochs = 30
+lr = 0.001  # 0.0007
+trainingEpochs = 50
 
 # Print tf info:
 print("Tensorflow ver:", tf.__version__)
 
 # Load each image path of the dataset:
 print("[FaceNet Training] Loading images...")
+
+# Set random seed:
+random.seed(randomSeed)
+np.random.seed(randomSeed)
 
 # Store the samples total here:
 totalDatasetSamples = 0
@@ -311,6 +318,12 @@ for c, currentDirectory in enumerate(classesDirectories):
         # Load the image:
         currentImage = cv2.imread(currentPath)
 
+        # Flip?
+        flipInt = random.randint(0, 1)
+        if flipInt == 1:
+            # Flip along the y axis:
+            currentImage = cv2.flip(currentImage, 1)
+
         # Should it be converted to grayscale (one channel):
         targetDepth = imageDims[-1]
 
@@ -345,10 +358,6 @@ for c, currentDirectory in enumerate(classesDirectories):
 # Get total samples in dataset:
 print("[FaceNet Training] Dataset Samples:", totalDatasetSamples)
 print("Loaded: [" + str(imagesPerClass) + "] images per class.")
-
-# Set random seed:
-random.seed(randomSeed)
-np.random.seed(randomSeed)
 
 # Build the positive pairs dataset:
 # Stores: (Class A - Sample 1, Class A - Sample 2, Class Code)
