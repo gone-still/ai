@@ -1,7 +1,7 @@
 # faceNet - Face Similarity
 
 Custom implementation of face similarity using a siamese network via keras. Includes image scrapper, pre-processor, train and test files. Face embeddings can be compared using euclidean distance or cosine distance.
-You can see the results in the following figue. The string encondes the result in this format: _`class (1 - same face | 0 - different face) : similarity distance`_. Errors are marked with a `[x]`:
+You can see the results in the following figue. The string encondes the result in this format: _`class (1 - same face | 0 - different face) : similarity distance`_. Errors are marked with a `[x]`, default precision ```threshold=0.5```:
 
 |Results 1|Results 2|Results 3|
 |--------------|-----------|------------|
