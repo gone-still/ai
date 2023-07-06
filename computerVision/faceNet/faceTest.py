@@ -1,8 +1,8 @@
 # File        :   faceTest.py
-# Version     :   0.9.6
+# Version     :   0.9.8
 # Description :   faceNet test script
 
-# Date:       :   Jul 04, 2023
+# Date:       :   Jul 06, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -40,27 +40,34 @@ datasetPath = outputPath + "cropped"
 weightsFilename = "facenetWeights.h5"
 
 # Write folder:
-resultsPath = outputPath + "results//"
+resultsPath = outputPath + "results//euclidean//"
 
 # Total positive pairs & negative pairs to be tested:
 startImage = 55  # Start at this image for test
 maxImages = 30  # Use all remaining images for test
-datasetSize = 200
+datasetSize = 300
 positivePortion = 0.7
 
 randomSeed = 42069
 pairsPerClass = 200
 
 displayImages = False
-showClassified = True
+showClassified = False
+writeAll = False
+
+# Apply high-pass:
+applyHighpass = True
 
 # Set the DNN's parameters:
 imageDims = (100, 100, 3)
 resizeInterpolation = cv2.INTER_AREA
 
-embeddingSize = 512
 lr = 0.001
 trainingEpochs = 1
+embeddingSize = 512
+
+# Choose sim metric: euclidean | cosine | sum
+similarityMetric = "euclidean"
 
 # Set the image dimensions:
 imageHeight = imageDims[0]
@@ -164,6 +171,13 @@ for c, currentDirectory in enumerate(classesDirectories):
 
         # Resize:
         currentImage = cv2.resize(currentImage, newSize, resizeInterpolation)
+
+        # Apply high-pass?
+        if applyHighpass:
+            kernel = np.array([[0, -1, 0],
+                               [-1, 5, -1],
+                               [0, -1, 0]])
+            currentImage = cv2.filter2D(currentImage, -1, kernel)
 
         # Scale:
         currentImage = currentImage.astype("float") / 255.0
@@ -340,7 +354,8 @@ print("Total pair samples in batch: " + str(len(testBatch)))
 # Build the faceNet model:
 
 model = faceNet.build(height=imageHeight, width=imageWidth, depth=imageChannels, namesList=["image1", "image2"],
-                      embeddingDim=embeddingSize, alpha=lr, epochs=trainingEpochs)
+                      embeddingDim=embeddingSize, alpha=lr, distanceCode=similarityMetric,
+                      lrSchedulerParameters=None)
 
 # Load in weights:
 weightsFilePath = outputPath + weightsFilename
@@ -449,24 +464,23 @@ for b in range(len(testBatch)):
         textColor = (0, 128, 255)
 
     cv2.putText(textStrip, text, (5, 22), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=textColor, thickness=1)
-    # showImage("text strip", textStrip)
 
     # Vertically concatenate images:
     stackedImage = cv2.vconcat([stackedImage, textStrip])
 
     # Show the positive/negative pair of images:
+    key = -1
     if showClassified:
         windowName = "Test Sample"
         cv2.namedWindow(windowName, cv2.WINDOW_NORMAL)
         cv2.imshow(windowName, stackedImage)
         key = cv2.waitKey(0)
 
-        # Manually save image:
-        if key == ord("e"):  # Press "e" to save image
-            print("Saving image to disk...")
-            imagePath = resultsPath + "siameseResult_" + str(imageCounter) + ".png"
-            writeImage(imagePath, stackedImage)
-            imageCounter += 1
+    if writeAll or key == ord("e"):  # Press "e" to save image:
+        print("Saving image to disk...")
+        imagePath = resultsPath + "siameseResult_" + str(imageCounter) + ".png"
+        writeImage(imagePath, stackedImage)
+        imageCounter += 1
 
 # Compute precision & recall:
 modelPrecision = precision_score(yTest, yPred)
