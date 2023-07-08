@@ -1,5 +1,5 @@
 # File        :   faceNet.py
-# Version     :   0.8.5
+# Version     :   0.9.0
 # Description :   faceNet CNN architecture
 
 # Date:       :   Jun 04, 2023
@@ -21,16 +21,19 @@ from tensorflow.keras.layers import Lambda
 
 from tensorflow.keras.optimizers.schedules import PiecewiseConstantDecay
 
-from siameseBranch import buildSiameseBranch, euclideanDistance
+from siameseBranch import buildSiameseBranch, euclideanDistance, getLearningRate
+from WeightedAverage import WeightedAverage
 
 
 class faceNet:
 
     @staticmethod
-    def build(height, width, depth, namesList, embeddingDim=100, alpha=0.001, epochs=10):
+    # Builds the complete faceNet siamese network:
+    def build(height, width, depth, namesList, embeddingDim=100, alpha=0.001, distanceCode="euclidean",
+              lrSchedulerParameters=None):
+
         # Set the input axis order (channel order):
         inputShape = (height, width, depth)
-        chanDim = -1
 
         # Create input layers:
         image1 = Input(name=namesList[0], shape=inputShape)
@@ -44,11 +47,20 @@ class faceNet:
         image2Embeddings = getEmbeddings(image2)
 
         # Compute distance:
-        distance = Lambda(euclideanDistance)([image1Embeddings, image2Embeddings])
-
-        # Cosine Distance. Expected shape (None, 1)
-        # distance = Dot(name="dot_product", normalize=True, axes=1)([dense1, dense2])
-        # distance = Lambda(cosine_distance)([dense1, dense2])
+        if distanceCode == "euclidean":
+            # Euclidean Distance. Expected shape (None, 1)
+            distance = Lambda(euclideanDistance)([image1Embeddings, image2Embeddings])
+            print("faceNet[build]>> Using Euclidean Distance")
+        elif distanceCode == "cosine":
+            # Cosine Distance. Expected shape (None, 1)
+            distance = Dot(name="dot_product", normalize=True, axes=1)([image1Embeddings, image2Embeddings])
+            print("faceNet[build]>> Using Cosine Distance")
+        else:
+            # Weighted average:
+            distance1 = Lambda(euclideanDistance)([image1Embeddings, image2Embeddings])
+            distance2 = Dot(name="dot_product", normalize=True, axes=1)([image1Embeddings, image2Embeddings])
+            distance = WeightedAverage()([distance1, distance2])
+            print("faceNet[build]>> Using Weighted Average of both distances")
 
         # Reshape to be a single number (shape will be (None, 1))
         # reshaped = Reshape(target_shape=[1])(dotProduct)
@@ -58,26 +70,30 @@ class faceNet:
 
         # Set the model inputs/outputs:
         model = Model(inputs=[image1, image2], outputs=finalOutput)
-        # Set the optimizer:
-        # optimizer = Adam(lr=alpha, decay=alpha / (epochs * 0.5))
 
-        boundaries = [2023]
-        values = [0.001, 0.001 * 0.8]
+        # Set the optimizer and learning rate scheduler:
+        if lrSchedulerParameters:
+            # Get the step boundaries:
+            boundaries = lrSchedulerParameters[0]
+            # Get the learning rate values:
+            values = lrSchedulerParameters[1]
 
-        lr_schedule = PiecewiseConstantDecay(boundaries, values)
-        optimizer = Adamax(learning_rate=lr_schedule)
+            # Set the scheduler:
+            lrSchedule = PiecewiseConstantDecay(boundaries, values)
+            print("faceNet>> Using learning rate scheduler, params:", boundaries, values)
 
-        def get_lr_metric(optimizer):
-            def lr(y_true, y_pred):
-                return optimizer._decayed_lr(tf.float32)  # I use ._decayed_lr method instead of .lr
+            # Set the optimizer:
+            optimizer = Adamax(learning_rate=lrSchedule)
+            lrMetric = getLearningRate(optimizer)
+            metrics = ["accuracy", lrMetric]  # , tf.keras.metrics.Precision(), tf.keras.metrics.Recall()]
 
-            return lr
-
-        lr_metric = get_lr_metric(optimizer)
+        else:
+            optimizer = Adamax(learning_rate=alpha)
+            metrics = ["accuracy"]  # , tf.keras.metrics.Precision(), tf.keras.metrics.Recall()]
 
         # Compile the model:
         model.compile(loss="binary_crossentropy", optimizer=optimizer,
-                      metrics=["accuracy", lr_metric])
+                      metrics=metrics)
 
         # Done:
         return model

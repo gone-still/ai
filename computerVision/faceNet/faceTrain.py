@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.8.5
+# Version     :   0.8.7
 # Description :   faceNet training script
 
-# Date:       :   Jul 04, 2023
+# Date:       :   Jul 05, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -14,15 +14,13 @@ from glob import glob
 import numpy as np
 import random
 
-from faceNet import faceNet
-
+import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import plot_model
 
-import matplotlib.pyplot as plt
+from faceNet import faceNet
 
-import tensorflow as tf
-from tensorflow.keras.datasets import mnist
+import matplotlib.pyplot as plt
 
 
 # Defines a re-sizable image window:
@@ -206,6 +204,13 @@ projectPath = "D://dataSets//faces//"
 outputPath = projectPath + "out//"
 datasetPath = outputPath + "cropped"
 
+# Set the global random seed for all pseudo-random processes:
+randomSeed = 420
+
+# Debug:
+displayImages = False
+displaySampleBatch = False
+
 # Script Options:
 trainSplit = 0.8  # Dataset split for training
 validationSize = -1  # Use this amount of samples from the validation split for validation, -1 uses the full validation split
@@ -213,11 +218,6 @@ validationStepsPercent = 1.0
 
 # Generator generates this amount of positive pairs for training [0] and validation [1]:
 nPositive = (128, 128)
-
-randomSeed = 420
-
-displayImages = False
-displaySampleBatch = False
 
 # CNN image processing shape:
 imageDims = (100, 100, 3)
@@ -230,19 +230,30 @@ imagesPerClass = 55
 
 # Vertically random-flip samples:
 randomFlip = True
+# Apply high-pass:
+applyHighpass = True
+# Randomly use grayscale:
+randomGrayscale = False
 
-# Create this amount of unique positive pairs:
-pairsPerClass = (0.5 * (imagesPerClass ** 2.0) - (0.5 * imagesPerClass) - 7e-12) + 60
+# FaceNet training options:
+# Choose sim metric: euclidean | cosine | sum
+similarityMetric = "euclidean"
+lr = 0.001  # 0.0007
+netParameters = {"euclidean": {"epochs": 30, "boundaries": [594, 2970], "values": [0.0035, 0.001, 0.0007]},
+                 # "cosine": {"epochs": 30, "boundaries": [3468], "values": [0.0025, 0.001]},
+                 "cosine": {"epochs": 10, "boundaries": [594, 1485], "values": [0.07, 0.0125, 0.005]},
+                 "sum": {"epochs": 35, "boundaries": [2890], "values": [0.001, 0.001 * 0.6]}}
+
+# Create this amount of positive pairs...
+# Extra pairs (not guaranteed to be unique):
+extraPairs = 100
+# Compute the max number of unique pairs:
+pairsPerClass = (0.5 * (imagesPerClass ** 2.0) - (0.5 * imagesPerClass) - 7e-12) + extraPairs
 pairsPerClass = math.ceil(pairsPerClass)
-# pairsPerClass = 1770  # 3321
 
 weightsFilename = "facenetWeights.h5"
 loadWeights = False
 saveWeights = True
-
-# FaceNet training options:
-lr = 0.001  # 0.0007
-trainingEpochs = 50
 
 # Print tf info:
 print("Tensorflow ver:", tf.__version__)
@@ -324,6 +335,15 @@ for c, currentDirectory in enumerate(classesDirectories):
             # Flip along the y axis:
             currentImage = cv2.flip(currentImage, 1)
 
+        # Use grayscale?
+        if randomGrayscale:
+            convertInt = random.randint(0, 4)
+            if convertInt == 4:
+                # To Gray
+                currentImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2GRAY)
+                # To BGR:
+                currentImage = cv2.cvtColor(currentImage, cv2.COLOR_GRAY2BGR)
+
         # Should it be converted to grayscale (one channel):
         targetDepth = imageDims[-1]
 
@@ -333,8 +353,16 @@ for c, currentDirectory in enumerate(classesDirectories):
 
         # Pre-process the image for FaceNet input:
         newSize = imageDims[0:2]
+
         # Resize:
         currentImage = cv2.resize(currentImage, newSize, resizeInterpolation)
+
+        # Apply high-pass?
+        if applyHighpass:
+            kernel = np.array([[0, -1, 0],
+                               [-1, 5, -1],
+                               [0, -1, 0]])
+            currentImage = cv2.filter2D(currentImage, -1, kernel)
 
         # Scale:
         currentImage = currentImage.astype("float") / 255.0
@@ -528,14 +556,14 @@ if displaySampleBatch:
         # Print the total count per class:
         print(currentBatch, "Total Positives: ", classCounters[0], " Total Negatives: ", classCounters[1])
 
-# Set the image dimensions:
-# imageHeight = imageDims[0]
-# imageWidth = imageDims[1]
-# imageChannels = imageDims[2]
+# Set the lr scheduler parameters:
+print("Distance set to: " + similarityMetric)
+lrParameters = [netParameters[similarityMetric]["boundaries"], netParameters[similarityMetric]["values"]]
 
 # Build the faceNet model:
 model = faceNet.build(height=imageDims[0], width=imageDims[1], depth=imageDims[2], namesList=["image1", "image2"],
-                      embeddingDim=embeddingSize, alpha=lr, epochs=trainingEpochs)
+                      embeddingDim=embeddingSize, alpha=lr, distanceCode=similarityMetric,
+                      lrSchedulerParameters=lrParameters)
 
 # Load or train model from scratch:
 if loadWeights:
@@ -570,8 +598,8 @@ else:
     trainGen = generateBatch(pairs=trainPairs, n_positive=nPositive[0], negative_ratio=2)
     validationGen = generateBatch(pairs=validationPairs, n_positive=nPositive[1], negative_ratio=2)
 
-    # # Train the net:
-    # # len(pairs) / 1024 = 754.68 (755)
+    # Train the net:
+    trainingEpochs = netParameters[similarityMetric]["epochs"]
     H = model.fit(trainGen,
                   validation_data=validationGen,
                   steps_per_epoch=stepsPerEpoch,
