@@ -2,7 +2,7 @@
 # Version     :   0.9.0
 # Description :   faceNet CNN architecture
 
-# Date:       :   Jun 04, 2023
+# Date:       :   Jun 05, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
