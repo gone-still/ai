@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.8.7
+# Version     :   0.8.9
 # Description :   faceNet training script
 
-# Date:       :   Jul 05, 2023
+# Date:       :   Jul 09, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -237,12 +237,13 @@ randomGrayscale = False
 
 # FaceNet training options:
 # Choose sim metric: euclidean | cosine | sum
-similarityMetric = "euclidean"
+similarityMetric = "sum"
 lr = 0.001  # 0.0007
 netParameters = {"euclidean": {"epochs": 30, "boundaries": [594, 2970], "values": [0.0035, 0.001, 0.0007]},
                  # "cosine": {"epochs": 30, "boundaries": [3468], "values": [0.0025, 0.001]},
                  "cosine": {"epochs": 10, "boundaries": [594, 1485], "values": [0.07, 0.0125, 0.005]},
-                 "sum": {"epochs": 35, "boundaries": [2890], "values": [0.001, 0.001 * 0.6]}}
+                 # "sum": {"epochs": 35, "boundaries": [2890], "values": [0.001, 0.001 * 0.6]}}
+                 "sum": {"epochs": 20, "boundaries": [594, 1485], "values": [0.07, 0.0125, 0.0045]}}
 
 # Create this amount of positive pairs...
 # Extra pairs (not guaranteed to be unique):
@@ -447,15 +448,6 @@ for currentClass in facesDataset:
 
 # Shuffle the list of positive pairs:
 random.shuffle(positivePairs)
-
-# f = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-# listSize = len(f)
-# listEnd = int(0.8 * listSize)
-#
-# a = f[0:listEnd]
-# sliceSize = 2
-# b = f[listEnd:-sliceSize]
-# u = f[listEnd + sliceSize:]
 
 # Split the pairs for train and validation,
 # Training:

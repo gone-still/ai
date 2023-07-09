@@ -1,25 +1,21 @@
 # File        :   faceNet.py
-# Version     :   0.9.0
+# Version     :   0.9.5
 # Description :   faceNet CNN architecture
 
-# Date:       :   Jun 04, 2023
+# Date:       :   Jun 09, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
-import tensorflow as tf
+
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input
-from tensorflow.keras.layers import Dot
-
 from tensorflow.keras.layers import Dense
 
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.optimizers import Adamax
-from tensorflow.keras.optimizers import Nadam
-
+from tensorflow.keras.layers import Dot
 from tensorflow.keras.layers import Lambda
 
 from tensorflow.keras.optimizers.schedules import PiecewiseConstantDecay
+from tensorflow.keras.optimizers import Adamax
 
 from siameseBranch import buildSiameseBranch, euclideanDistance, getLearningRate
 from WeightedAverage import WeightedAverage
@@ -47,26 +43,35 @@ class faceNet:
         image2Embeddings = getEmbeddings(image2)
 
         # Compute distance:
-        if distanceCode == "euclidean":
-            # Euclidean Distance. Expected shape (None, 1)
-            distance = Lambda(euclideanDistance)([image1Embeddings, image2Embeddings])
-            print("faceNet[build]>> Using Euclidean Distance")
-        elif distanceCode == "cosine":
-            # Cosine Distance. Expected shape (None, 1)
-            distance = Dot(name="dot_product", normalize=True, axes=1)([image1Embeddings, image2Embeddings])
-            print("faceNet[build]>> Using Cosine Distance")
+        if distanceCode == "euclidean" or distanceCode == "cosine":
+
+            if distanceCode == "euclidean":
+                # Euclidean Distance. Expected shape (None, 1)
+                distance = Lambda(euclideanDistance)([image1Embeddings, image2Embeddings])
+                print("faceNet[build]>> Using Euclidean Distance")
+            else:
+                # Cosine Distance. Expected shape (None, 1)
+                distance = Dot(name="dot_product", normalize=True, axes=1)([image1Embeddings, image2Embeddings])
+                print("faceNet[build]>> Using Cosine Distance")
+
+            # Dense. Expected shape: (None, 1)
+            finalOutput = Dense(1, activation="sigmoid")(distance)
+
         else:
+
             # Weighted average:
             distance1 = Lambda(euclideanDistance)([image1Embeddings, image2Embeddings])
             distance2 = Dot(name="dot_product", normalize=True, axes=1)([image1Embeddings, image2Embeddings])
-            distance = WeightedAverage()([distance1, distance2])
+
+            # Run both distances thru dense layers:
+            out1 = Dense(1, activation="sigmoid")(distance1)
+            out2 = Dense(1, activation="sigmoid")(distance2)
+
+            # Weighted average of the two distances (output is [0.0 - 1.0])
+            weightedOutput = WeightedAverage()([out1, out2])
+            finalOutput = Dense(1, activation="sigmoid")(weightedOutput)
+
             print("faceNet[build]>> Using Weighted Average of both distances")
-
-        # Reshape to be a single number (shape will be (None, 1))
-        # reshaped = Reshape(target_shape=[1])(dotProduct)
-
-        # Dense. Expected shape: (None, 1)
-        finalOutput = Dense(1, activation="sigmoid")(distance)
 
         # Set the model inputs/outputs:
         model = Model(inputs=[image1, image2], outputs=finalOutput)
