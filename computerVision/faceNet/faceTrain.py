@@ -202,7 +202,7 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False):
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 outputPath = projectPath + "out//"
-datasetPath = outputPath + "cropped"
+datasetPath = outputPath + "cropped//train"
 
 # Set the global random seed for all pseudo-random processes:
 randomSeed = 420
@@ -237,11 +237,11 @@ randomGrayscale = False
 
 # FaceNet training options:
 # Choose sim metric: euclidean | cosine | sum
-similarityMetric = "sum"
+similarityMetric = "cosine"
 lr = 0.001  # 0.0007
 netParameters = {"euclidean": {"epochs": 30, "boundaries": [594, 2970], "values": [0.0035, 0.001, 0.0007]},
                  # "cosine": {"epochs": 30, "boundaries": [3468], "values": [0.0025, 0.001]},
-                 "cosine": {"epochs": 10, "boundaries": [594, 1485], "values": [0.07, 0.0125, 0.005]},
+                 "cosine": {"epochs": 15, "boundaries": [594, 1485], "values": [0.07, 0.0125, 0.0025]},
                  # "sum": {"epochs": 35, "boundaries": [2890], "values": [0.001, 0.001 * 0.6]}}
                  "sum": {"epochs": 20, "boundaries": [594, 1485], "values": [0.07, 0.0125, 0.0045]}}
 
@@ -257,10 +257,10 @@ loadWeights = False
 saveWeights = True
 
 # Print tf info:
-print("Tensorflow ver:", tf.__version__)
+print("[INFO - FaceNet Training] -- Tensorflow ver:", tf.__version__)
 
 # Load each image path of the dataset:
-print("[FaceNet Training] Loading images...")
+print("[INFO - FaceNet Training] -- Loading images...")
 
 # Set random seed:
 random.seed(randomSeed)
@@ -280,7 +280,6 @@ classesDirectories = glob(datasetPath + "//*//", recursive=True)
 classesDirectories.sort()
 
 # Trim root directory, leave only subdirectories names (these will be the classes):
-print(datasetPath)
 rootLength = len(datasetPath)
 classesImages = [dirName[rootLength + 1:-1] for dirName in classesDirectories]
 
@@ -291,11 +290,12 @@ for c in classesImages:
         classesDictionary[c] = classCounter
         classCounter += 1
 
-print(classesDictionary)
+print("[INFO - FaceNet Training] -- Classes Dictionary:")
+print(" ", classesDictionary)
 
 # Get total classes:
 totalClasses = len(classesImages)
-print("Total Classes:", totalClasses, classesImages)
+print("[INFO - FaceNet Training] -- Total Classes:", totalClasses)
 
 # Load images per class:
 for c, currentDirectory in enumerate(classesDirectories):
@@ -308,7 +308,7 @@ for c, currentDirectory in enumerate(classesDirectories):
     # random.shuffle(imagePaths)
 
     currentClass = classesImages[c]
-    print("[FaceNet Training] Class: " + currentClass + " Available Samples: " + str(totalImages))
+    print(" ", "Class: " + currentClass + " Available Samples: " + str(totalImages))
 
     # Create dictionary key:
     # Each key is a class name associated with
@@ -382,15 +382,15 @@ for c, currentDirectory in enumerate(classesDirectories):
         totalDatasetSamples += 1
 
     # Print the total of samples used:
-    print("[FaceNet Training] Class: " + currentClass + " Used Samples: " + str(imagesRange) + "/" + str(totalImages))
+    print(" ", "Class: " + currentClass + " Used Samples: " + str(imagesRange) + "/" + str(totalImages))
 
 # Get total samples in dataset:
-print("[FaceNet Training] Dataset Samples:", totalDatasetSamples)
-print("Loaded: [" + str(imagesPerClass) + "] images per class.")
+print("[INFO - FaceNet Training] -- Dataset Samples:", totalDatasetSamples)
+print("[INFO - FaceNet Training] -- Loaded: [" + str(imagesPerClass) + "] images per class.")
 
 # Build the positive pairs dataset:
 # Stores: (Class A - Sample 1, Class A - Sample 2, Class Code)
-print("Generating: ", pairsPerClass, " pairs per class...")
+print("[INFO - FaceNet Training] -- Generating: ", pairsPerClass, " pairs per class...")
 
 positivePairs = []
 
@@ -418,7 +418,7 @@ for currentClass in facesDataset:
         randomSamples[1] = random.choice(list(set(choices) - set([randomSamples[0]])))
 
         # Print the chosen samples:
-        print("Processing pair: " + str(processedPairs), randomSamples)
+        print(" ", "Processing pair: " + str(processedPairs), randomSamples)
 
         # Store sample pair here:
         tempList = []
@@ -453,7 +453,8 @@ random.shuffle(positivePairs)
 # Training:
 totalPairs = len(positivePairs)
 trainSize = int(trainSplit * totalPairs)
-print("Train dataset has: " + str(trainSize) + " (" + str(trainSplit) + ") samples out of: " + str(totalPairs))
+print("[INFO - FaceNet Training] -- Train dataset has: " + str(trainSize) + " (" + str(
+    trainSplit) + ") samples out of: " + str(totalPairs))
 
 # Validation:
 trainPairs = positivePairs[0:trainSize]
@@ -472,7 +473,8 @@ else:
 validationSetSize = len(validationPairs)
 validationSplit = validationSetSize / listSize
 
-print("Validation dataset has: " + str(validationSetSize) + " (" + str(validationSplit) + ") samples out of: " + str(
+print("[INFO - FaceNet Training] -- Validation dataset has: " + str(validationSetSize) + " (" + str(
+    validationSplit) + ") samples out of: " + str(
     listSize))
 
 # Check batch info:
@@ -510,7 +512,7 @@ if displaySampleBatch:
                 classCounters[0] += 1
 
             # Check the info:
-            print(currentBatch, i, "Pair Label:", label, classText)
+            print(" ", currentBatch, i, "Pair Label:", label, classText)
 
             # Get image dimensions:
             imageHeight, imageWidth = img1.shape[1:3]
@@ -546,10 +548,10 @@ if displaySampleBatch:
             showImage("[" + currentBatch + " Generator] Sample", stackedImage)
 
         # Print the total count per class:
-        print(currentBatch, "Total Positives: ", classCounters[0], " Total Negatives: ", classCounters[1])
+        print(" ", currentBatch, "Total Positives: ", classCounters[0], " Total Negatives: ", classCounters[1])
 
 # Set the lr scheduler parameters:
-print("Distance set to: " + similarityMetric)
+print("[INFO - FaceNet Training] -- Distance set to: " + similarityMetric)
 lrParameters = [netParameters[similarityMetric]["boundaries"], netParameters[similarityMetric]["values"]]
 
 # Build the faceNet model:
@@ -562,7 +564,7 @@ if loadWeights:
 
     # Get model path + name:
     modelPath = outputPath + weightsFilename
-    print("[INFO] -- Loading faceNet Model from: " + modelPath)
+    print("[INFO - FaceNet Training] -- Loading faceNet Model from: " + modelPath)
     # Load model:
     model.load_weights(modelPath)
     # Get summary:
@@ -570,21 +572,22 @@ if loadWeights:
 
 else:
 
-    print("[INFO] -- Creating faceNet Model from scratch:")
+    print("[INFO - FaceNet Training] -- Creating faceNet Model from scratch:")
     # Get faceNet summary:
     model.summary()
 
     # Plot faceNet model:
     graphPath = outputPath + "model_plot.png"
     plot_model(model, to_file=graphPath, show_shapes=True, show_layer_names=True)
-    print("[INFO] -- Model graph saved to: " + graphPath)
+    print("[INFO - FaceNet Training] -- Model graph saved to: " + graphPath)
 
     # Set the test/validation datasets portions:
     stepsPerEpoch = len(trainPairs) // nPositive[0]
     validationSteps = len(validationPairs) // nPositive[1]
     # validationSteps = int(validationStepsPercent * stepsPerEpoch)  # len(testPairs) // nPositive
 
-    print("Steps per epoch -> Training: " + str(stepsPerEpoch) + " Validation: " + str(validationSteps))
+    print("[INFO - FaceNet Training] -- Steps per epoch -> Training: " + str(stepsPerEpoch) + " Validation: " + str(
+        validationSteps))
 
     # Set the samples' generator:
     trainGen = generateBatch(pairs=trainPairs, n_positive=nPositive[0], negative_ratio=2)
@@ -599,13 +602,11 @@ else:
                   epochs=trainingEpochs,
                   verbose=1)
 
-    print("Model Fitted...")
-    #
     # # Check if model needs to be saved:
     if saveWeights:
         # Set model path:
         modelPath = outputPath + weightsFilename
-        print("[INFO] -- Saving model to: " + str(modelPath))
+        print("[INFO - FaceNet Training] -- Saving model to: " + str(modelPath))
         # model.save(modelPath)
         model.save_weights(modelPath)
 
@@ -632,6 +633,6 @@ else:
 
     # Save plot to disk:
     plotPath = projectPath + "out//" + "lossGraph.png"
-    print("[INFO] -- Saving model loss plot to:" + plotPath)
+    print("[INFO - FaceNet Training] -- Saving model loss plot to:" + plotPath)
     plt.savefig(plotPath)
     plt.show()

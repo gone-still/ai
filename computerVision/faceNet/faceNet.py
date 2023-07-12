@@ -1,8 +1,8 @@
 # File        :   faceNet.py
-# Version     :   0.9.5
+# Version     :   0.9.6
 # Description :   faceNet CNN architecture
 
-# Date:       :   Jun 09, 2023
+# Date:       :   Jun 10, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -52,7 +52,7 @@ class faceNet:
             else:
                 # Cosine Distance. Expected shape (None, 1)
                 distance = Dot(name="dot_product", normalize=True, axes=1)([image1Embeddings, image2Embeddings])
-                print("faceNet[build]>> Using Cosine Distance")
+                print("faceNet [build]>> Using Cosine Distance")
 
             # Dense. Expected shape: (None, 1)
             finalOutput = Dense(1, activation="sigmoid")(distance)
@@ -71,7 +71,7 @@ class faceNet:
             weightedOutput = WeightedAverage()([out1, out2])
             finalOutput = Dense(1, activation="sigmoid")(weightedOutput)
 
-            print("faceNet[build]>> Using Weighted Average of both distances")
+            print("faceNet [build]>> Using Weighted Average of both distances")
 
         # Set the model inputs/outputs:
         model = Model(inputs=[image1, image2], outputs=finalOutput)
@@ -85,7 +85,7 @@ class faceNet:
 
             # Set the scheduler:
             lrSchedule = PiecewiseConstantDecay(boundaries, values)
-            print("faceNet>> Using learning rate scheduler, params:", boundaries, values)
+            print("faceNet [build]>> Using Learning Rate Scheduler, params:", boundaries, values)
 
             # Set the optimizer:
             optimizer = Adamax(learning_rate=lrSchedule)

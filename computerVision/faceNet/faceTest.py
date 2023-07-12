@@ -1,13 +1,14 @@
 # File        :   faceTest.py
-# Version     :   0.9.8
+# Version     :   0.9.9
 # Description :   faceNet test script
 
-# Date:       :   Jul 06, 2023
+# Date:       :   Jul 10, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
 import cv2
 import math
+import os
 
 from imutils import paths
 from glob import glob
@@ -36,23 +37,28 @@ def writeImage(imagePath, inputImage):
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 outputPath = projectPath + "out//"
-datasetPath = outputPath + "cropped"
-weightsFilename = "facenetWeights.h5"
+datasetPath = outputPath + "cropped//test"
+
+# Set distance metric:
+similarityMetric = "cosine"
+
+# Set weights file name:
+weightsFilename = "facenetWeights" + "-" + similarityMetric + ".h5"
 
 # Write folder:
-resultsPath = outputPath + "results//euclidean//"
+resultsPath = outputPath + "results//cosine//"
 
 # Total positive pairs & negative pairs to be tested:
-startImage = 55  # Start at this image for test
-maxImages = 30  # Use all remaining images for test
-datasetSize = 300
+# startImage = 55  # Start at this image for test
+maxImages = 30  # Use all remaining images for test (-1 uses all the images)
+datasetSize = 350
 positivePortion = 0.7
 
-randomSeed = 42069
+randomSeed = 420
 pairsPerClass = 200
 
 displayImages = False
-showClassified = False
+showClassified = True
 writeAll = False
 
 # Apply high-pass:
@@ -62,12 +68,9 @@ applyHighpass = True
 imageDims = (100, 100, 3)
 resizeInterpolation = cv2.INTER_AREA
 
+embeddingSize = 512
 lr = 0.001
 trainingEpochs = 1
-embeddingSize = 512
-
-# Choose sim metric: euclidean | cosine | sum
-similarityMetric = "euclidean"
 
 # Set the image dimensions:
 imageHeight = imageDims[0]
@@ -97,11 +100,12 @@ for c in classesImages:
         classesDictionary[c] = classCounter
         classCounter += 1
 
-print(classesDictionary)
+print("[INFO - FaceNet Testing] -- Classes Dictionary:")
+print(" ", classesDictionary)
 
 # Get total classes:
 totalClasses = len(classesImages)
-print("Total Classes:", totalClasses, classesImages)
+print("[INFO - FaceNet Testing] -- Total Classes:", totalClasses)
 
 # Store the samples total here:
 totalDatasetSamples = 0
@@ -112,35 +116,40 @@ testDataset = {}
 
 # Load images per class:
 for c, currentDirectory in enumerate(classesDirectories):
+    # Get class:
+    currentClass = classesImages[c]
+
     # Images for this class:
     imagePaths = list(paths.list_images(currentDirectory))
+    # Shake the hat:
+    random.shuffle(imagePaths)
     totalImages = len(imagePaths)
 
     # Slice test images:
-    if maxImages == -1:
-        imagePaths = imagePaths[startImage:]
-    else:
-        # Compute last image:
-        samplesDiff = totalImages - startImage
-        if samplesDiff < maxImages:
-            endImage = totalImages
-        else:
-            endImage = startImage + maxImages
-        imagePaths = imagePaths[startImage:endImage]
+    if maxImages != -1:
+        # Check for minimum number of necessary images to create
+        # a unique pair:
+        if totalImages < 2:
+            print(
+                "[INFO - FaceNet Testing] -- Skipping class: " + currentClass + " due to insufficient samples to build pairs. " "Test Images: " + str(
+                    totalImages))
+            continue
 
-    # Get class:
-    currentClass = classesImages[c]
+        # More images than needed, trim the range:
+        if totalImages >= maxImages:
+            # Set the image range:
+            endImage = maxImages
+        # Not enough images:
+        else:
+            endImage = totalImages
+
+        # Get the requested paths:
+        imagePaths = imagePaths[0:endImage]
+
     testSamples = len(imagePaths)
 
-    # Check for minimum number of necessary images to create
-    # a unique pair:
-    if testSamples < 2:
-        print(
-            "[FaceNet Test] [X] Skipping class: " + currentClass + " due to insufficient samples to build pairs. Test Samples: " + str(
-                testSamples))
-        continue
-
-    print("[FaceNet Test] Class: " + currentClass + " Using: " + str(testSamples) + " samples for testing...")
+    print("[INFO - FaceNet Testing] -- Class: " + currentClass + ", using: " + str(testSamples) + " samples for "
+                                                                                                  "testing...")
 
     # Create dictionary key:
     # Each key is a class name associated with
@@ -196,15 +205,15 @@ for c, currentDirectory in enumerate(classesDirectories):
         totalDatasetSamples += 1
 
 # Get total samples in dataset:
-print("[FaceNet Test] Dataset Samples:", totalDatasetSamples)
-print("Loaded: [" + str(imagesRange) + "] images per class.")
+print("[INFO - FaceNet Testing] -- Dataset Samples:", totalDatasetSamples)
+print(" ", "Loaded: [" + str(imagesRange) + "] images per class.")
 
 # Create the positive pairs:
 if pairsPerClass == -1:
     pairsPerClass = 0.5 * (imagesRange ** 2.0) - (0.5 * imagesRange) - 7e-12
     pairsPerClass = math.ceil(pairsPerClass)
 
-print("Creating: " + str(pairsPerClass) + " pairs per class...")
+print("[INFO - FaceNet Testing] -- Creating: " + str(pairsPerClass) + " pairs per class...")
 
 # Positive pairs are stored here:
 positivePairs = []
@@ -234,7 +243,7 @@ for currentClass in testDataset:
         randomSamples[1] = random.choice(list(set(choices) - set([randomSamples[0]])))
 
         # Print the chosen samples:
-        print("Processing pair: " + str(processedPairs), randomSamples)
+        print(" ", "Processing pair: " + str(processedPairs), randomSamples)
 
         # Store sample pair here:
         tempList = []
@@ -272,7 +281,8 @@ testBatch = []  # List of pairs and real labels
 totalPositives = int(positivePortion * datasetSize)
 totalNegatives = datasetSize - totalPositives
 
-print("Positive Samples: " + str(totalPositives) + " Negative Samples: " + str(totalNegatives) +
+print("[INFO - FaceNet Testing] -- Positive Samples: " + str(totalPositives) + " Negative Samples: " + str(
+    totalNegatives) +
       " Total: " + str(totalPositives + totalNegatives))
 
 # Get total number of pairs:
@@ -283,7 +293,7 @@ choicesArray = np.arange(0, totalPairs, 1, dtype=int)
 positiveSamples = np.random.choice(choicesArray, totalPositives, replace=True)
 
 # Store the positive random pairs in the batch array:
-print("Storing positive pairs for test batch...")
+print("[INFO - FaceNet Testing] -- Storing positive pairs for test batch...")
 for i in range(totalPositives):
 
     # Get current pair of images:
@@ -299,10 +309,10 @@ for i in range(totalPositives):
     testBatch.append(([currentSample[0], currentSample[1]], 1))
 
 positiveBatchSize = len(testBatch)
-print("Positive pairs stored: " + str(positiveBatchSize))
+print("[INFO - FaceNet Testing] -- Positive pairs stored: " + str(positiveBatchSize))
 
 # Store the negative random pairs:
-print("Storing negative pairs for test batch...")
+print("[INFO - FaceNet Testing] -- Storing negative pairs for test batch...")
 for i in range(totalNegatives):
 
     # Randomly generated negative sample row here:
@@ -345,11 +355,11 @@ for i in range(totalNegatives):
     testBatch.append((tempList, 0))
 
 negativeBatchSize = len(testBatch) - positiveBatchSize
-print("Negative pairs stored: " + str(negativeBatchSize))
+print("[INFO - FaceNet Testing] -- Negative pairs stored: " + str(negativeBatchSize))
 
 # Shuffle list:
 random.shuffle(testBatch)
-print("Total pair samples in batch: " + str(len(testBatch)))
+print("[INFO - FaceNet Testing] -- Total pair samples in batch: " + str(len(testBatch)))
 
 # Build the faceNet model:
 
@@ -359,12 +369,26 @@ model = faceNet.build(height=imageHeight, width=imageWidth, depth=imageChannels,
 
 # Load in weights:
 weightsFilePath = outputPath + weightsFilename
-print("[INFO] -- Loading faceNet weights file from: " + weightsFilePath)
+print("[INFO - FaceNet Testing] -- Loading faceNet weights file from: " + weightsFilePath)
 model.load_weights(weightsFilePath)
 
 # Get summary:
 model.summary()
 
+# Check if output directory must be created:
+if writeAll:
+    print("[INFO - FaceNet Testing] -- Checking output directory: " + resultsPath)
+    directoryExists = os.path.isdir(resultsPath)
+    if not directoryExists:
+        print("[INFO - FaceNet Testing] -- Creating Directory: " + resultsPath)
+        os.mkdir(resultsPath)
+        directoryExists = os.path.isdir(resultsPath)
+        if directoryExists:
+            print("[INFO - FaceNet Testing] -- Successfully created directory: " + resultsPath)
+    else:
+        print("[INFO - FaceNet Testing] -- Directory Found.")
+
+# Prepare predictions and real labels lists:
 yPred = []
 yTest = []
 
@@ -402,7 +426,7 @@ for b in range(len(testBatch)):
 
     # Check the info:
     text = str(testLabel) + " : " + f'{currentPrediction:.4f}'
-    print(b, "Class: ", classText, " Predicted: ", f'{currentPrediction:.4f}', " Real: ", testLabel)
+    print(" ", b, "Class: ", classText, " Predicted: ", f'{currentPrediction:.4f}', " Real: ", testLabel)
 
     # Store the info for CF plotting:
     yTest.append(testLabel)
@@ -464,6 +488,7 @@ for b in range(len(testBatch)):
         textColor = (0, 128, 255)
 
     cv2.putText(textStrip, text, (5, 22), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=textColor, thickness=1)
+    # showImage("text strip", textStrip)
 
     # Vertically concatenate images:
     stackedImage = cv2.vconcat([stackedImage, textStrip])
@@ -477,7 +502,7 @@ for b in range(len(testBatch)):
         key = cv2.waitKey(0)
 
     if writeAll or key == ord("e"):  # Press "e" to save image:
-        print("Saving image to disk...")
+        print("[INFO - FaceNet Testing] -- Saving image to disk...")
         imagePath = resultsPath + "siameseResult_" + str(imageCounter) + ".png"
         writeImage(imagePath, stackedImage)
         imageCounter += 1
@@ -485,9 +510,12 @@ for b in range(len(testBatch)):
 # Compute precision & recall:
 modelPrecision = precision_score(yTest, yPred)
 modelRecall = recall_score(yTest, yPred)
+print("[INFO - FaceNet Testing] -- Used model: {" + weightsFilename + "}")
+print("[INFO - FaceNet Testing] -- Computing Precision and Recall:")
 print((modelPrecision, modelRecall))
 
 # Compute confusion matrix:
+print("[INFO - FaceNet Testing] -- Computing Confusion Matrix:")
 result = confusion_matrix(yTest, yPred, normalize='pred')
 print(result)
 disp = ConfusionMatrixDisplay(confusion_matrix=result)
