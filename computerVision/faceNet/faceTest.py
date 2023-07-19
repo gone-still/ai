@@ -1,8 +1,8 @@
 # File        :   faceTest.py
-# Version     :   0.9.9
+# Version     :   0.10.6
 # Description :   faceNet test script
 
-# Date:       :   Jul 10, 2023
+# Date:       :   Jul 17, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -13,9 +13,13 @@ import os
 from imutils import paths
 from glob import glob
 import numpy as np
-import random
 
+import random
+import time
+
+from faceConfig import getNetworkParameters
 from faceNet import faceNet
+
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, precision_score, recall_score
 from matplotlib import pyplot as plt
 
@@ -34,19 +38,47 @@ def writeImage(imagePath, inputImage):
     print("Wrote Image: " + imagePath)
 
 
+# Natural sorts a list of strings:
+def naturalSort(inputList, prefix, imgExt=".png"):  # image_
+
+    # Attempting to naturally sort the list of strings:
+    tempList = []
+    filenameCounter = 0
+    prefixLen = len(prefix)
+    for name in inputList:
+        # Get the number from string:
+        tempString = name[prefixLen:]
+        tempString = tempString.split(".")
+        fileNumber = tempString[0].split("//")
+        fileNumber = fileNumber[-1]
+
+        # Store in temp list:
+        tempList.append(fileNumber)
+
+    # Sort the list (ascending)
+    tempList.sort()
+    # Prepare the (ordered) output list of strings:
+    outList = [prefix + str(n) + imgExt for n in tempList]
+
+    return outList
+
+
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 outputPath = projectPath + "out//"
 datasetPath = outputPath + "cropped//test"
 
+# Get the network parameters:
+configParameters = getNetworkParameters()
+
 # Set distance metric:
-similarityMetric = "cosine"
+similarityMetric = configParameters["similarityMetric"]
 
 # Set weights file name:
-weightsFilename = "facenetWeights" + "-" + similarityMetric + ".h5"
+weightsFilename = "facenetWeights" + "-" + configParameters["weightsFilename"] + ".h5"
 
 # Write folder:
-resultsPath = outputPath + "results//cosine//"
+resultsPath = outputPath + "results//cosine7//"
 
 # Total positive pairs & negative pairs to be tested:
 # startImage = 55  # Start at this image for test
@@ -58,19 +90,30 @@ randomSeed = 420
 pairsPerClass = 200
 
 displayImages = False
-showClassified = True
+showClassified = False
+includeUniques = True
 writeAll = False
 
-# Apply high-pass:
-applyHighpass = True
+# Skip images from this class:
+excludedClasses = ["Uniques"]
 
-# Set the DNN's parameters:
-imageDims = (100, 100, 3)
+# Apply high-pass:
+applyHighpass = configParameters["useHighPass"]
+
+# Set interpolation type:
 resizeInterpolation = cv2.INTER_AREA
 
-embeddingSize = 512
-lr = 0.001
-trainingEpochs = 1
+# Set the DNN's parameters:
+imageDims = configParameters["imageDims"]
+embeddingSize = configParameters["embeddingSize"]
+lr = configParameters["lr"]
+
+# Get the training configuration (epochs and lr scheduler config):
+netParameters = configParameters["netParameters"]
+lrParameters = [netParameters[similarityMetric]["boundaries"], netParameters[similarityMetric]["values"]]
+
+# Get the training configuration (epochs and lr scheduler config):
+netParameters = configParameters["netParameters"]
 
 # Set the image dimensions:
 imageHeight = imageDims[0]
@@ -88,6 +131,24 @@ classesDirectories.sort()
 
 # Trim root directory, leave only subdirectories names (these will be the classes):
 rootLength = len(datasetPath)
+
+# Filter the classes:
+if excludedClasses:
+    filteredList = []
+    for currentDir in classesDirectories:
+        # Get dir/class name:
+        className = currentDir[rootLength + 1:-1]
+        # Check if dir/class must be filtered:
+        if className not in excludedClasses:
+            # Into the filtered list:
+            filteredList.append(currentDir)
+        else:
+            print("[INFO - FaceNet Testing] -- Filtered class/dir: " + className)
+
+    # Filtered list is now
+    classesDirectories = filteredList
+
+# Load the classes:
 classesImages = [dirName[rootLength + 1:-1] for dirName in classesDirectories]
 
 # The classes dictionary:
@@ -271,6 +332,103 @@ for currentClass in testDataset:
     print("[" + currentClass + "]" + " Pairs Created: " + str(processedPairs) + ", Class: " + currentClass,
           "(" + str(classesDictionary[currentClass]) + ")", " Total: " + str(totalPairs))
 
+# Process "Uniques":
+uniquePairs = []
+if includeUniques:
+
+    # Max class code:
+    classCode = len(classesDictionary)
+    # Create new class coded in the classes dictionary:
+    classesDictionary["Uniques"] = classCode
+
+    print("Processing Unique pairs...")
+
+    # Set the Uniques directory:
+    uniquesDirectory = datasetPath + "//Uniques//"
+    # Images for this class:
+    imagePaths = list(paths.list_images(uniquesDirectory))
+    # Total unique pairs:
+    totalImages = len(imagePaths)
+
+    # Store sample pair here:
+    tempList = []
+
+    # Get the filename name mnemonic:
+    tempString = imagePaths[0].split(".")
+    tempString = tempString[0].split("//")
+    tempString = tempString[-1]
+    filename = tempString.split("-")
+
+    uniqueCount = 0
+
+    # Check the images:
+    for i in range(totalImages):
+        # Set the image name:
+        if i % 2 == 0:
+            lastChar = "A"
+        else:
+            lastChar = "B"
+
+        # Create complete path:
+        imageName = filename[0] + "-" + str(i + 1) + "-" + lastChar
+        currentPath = uniquesDirectory + imageName + ".png"
+        print("Current Unique image: ", currentPath)
+        # Load the image:
+        currentImage = cv2.imread(currentPath)
+
+        # Should it be converted to grayscale (one channel):
+        targetDepth = imageDims[-1]
+
+        if targetDepth != 3:
+            # To Gray:
+            currentImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2GRAY)
+
+        # Pre-process the image for FaceNet input:
+        newSize = imageDims[0:2]
+
+        # Resize:
+        currentImage = cv2.resize(currentImage, newSize, resizeInterpolation)
+
+        # Apply high-pass?
+        if applyHighpass:
+            kernel = np.array([[0, -1, 0],
+                               [-1, 5, -1],
+                               [0, -1, 0]])
+            currentImage = cv2.filter2D(currentImage, -1, kernel)
+
+        # Scale:
+        currentImage = currentImage.astype("float") / 255.0
+
+        if targetDepth == 1:
+            # Add "color" dimension:
+            currentImage = np.expand_dims(currentImage, axis=-1)
+
+        # Show the input image:
+        if displayImages:
+            showImage("[Unique Pair] Input image [Pre-processed]", currentImage)
+
+        # Into the temp list:
+        if lastChar == "A":
+            tempList.append(currentImage)
+        else:
+            tempList.append(currentImage)
+            # Finally, store class code:
+            tempList.append(classCode)
+            classCode += 1
+
+            # Into the positive pairs list:
+            uniquePairs.append(tempList)
+            uniqueCount += 1
+            tempList = []
+
+    # Shuffle the list of unique pairs:
+    random.shuffle(uniquePairs)
+
+    # Done creating positive pairs for this class:
+    totalPairs = len(uniquePairs)
+    print("[Unique]" + " Pairs Created: " + str(uniqueCount), "(" + str(uniqueCount * 2) + " Images)",
+          "(Class Code: " + str(classesDictionary["Uniques"]) + ")", " Total: " + str(totalPairs))
+
 # Shuffle the list of positive pairs:
 random.shuffle(positivePairs)
 
@@ -278,12 +436,38 @@ random.shuffle(positivePairs)
 testBatch = []  # List of pairs and real labels
 
 # Compute the dataset portions:
-totalPositives = int(positivePortion * datasetSize)
-totalNegatives = datasetSize - totalPositives
+totalUniques = 0
+if not uniquePairs:
+    # No unique pairs are present, just directly get
+    # dataset portions:
+    totalPositives = int(positivePortion * datasetSize)
+    totalNegatives = datasetSize - totalPositives
+
+else:
+    # Get total of unique pairs:
+    totalUniques = len(uniquePairs)
+
+    # print("[INFO - FaceNet Testing] -- Storing unique pairs for test batch...")
+    # for i in range(totalUniques):
+    #
+    #     # Get current pair of images:
+    #     currentSample = uniquePairs[i]
+    #
+    #     # Check images (if proper data type):
+    #     if displayImages:
+    #         showImage("[Unique] Sample 1", currentSample[0])
+    #         showImage("[Unique] Sample 2", currentSample[1])
+    #
+    #     # Into the batch - Pair and label (1):
+    #     testBatch.append(([currentSample[0], currentSample[1]], 1))
+
+    # Get positive and negative dataset portions:
+    totalNegatives = int((1 - positivePortion) * datasetSize)
+    totalPositives = datasetSize - (totalNegatives + totalUniques)
 
 print("[INFO - FaceNet Testing] -- Positive Samples: " + str(totalPositives) + " Negative Samples: " + str(
-    totalNegatives) +
-      " Total: " + str(totalPositives + totalNegatives))
+    totalNegatives) + " Unique Samples: " + str(totalUniques) + " Total: " + str(
+    totalPositives + totalNegatives + totalUniques))
 
 # Get total number of pairs:
 totalPairs = len(positivePairs)
@@ -311,8 +495,36 @@ for i in range(totalPositives):
 positiveBatchSize = len(testBatch)
 print("[INFO - FaceNet Testing] -- Positive pairs stored: " + str(positiveBatchSize))
 
+# Now, include unique pairs:
+if includeUniques:
+
+    for i in range(totalUniques):
+
+        # Get current pair of images:
+        currentSample = uniquePairs[i]
+
+        # Check images (if proper data type):
+        if displayImages:
+            showImage("[Positive] Sample 1", currentSample[0])
+            showImage("[Positive] Sample 2", currentSample[1])
+
+        # Into the batch - Pair and label (1):
+        testBatch.append(([currentSample[0], currentSample[1]], 1))
+
+    print("[INFO - FaceNet Testing] -- Unique pairs stored: " + str(totalUniques))
+
+    # Include unique pairs in positive pairs list:
+    positivePairs = positivePairs + uniquePairs
+    random.shuffle(positivePairs)
+    random.shuffle(positivePairs)
+
+    # Re-roll the options:
+    totalPairs = len(positivePairs)
+    choicesArray = np.arange(0, totalPairs, 1, dtype=int)
+
 # Store the negative random pairs:
 print("[INFO - FaceNet Testing] -- Storing negative pairs for test batch...")
+
 for i in range(totalNegatives):
 
     # Randomly generated negative sample row here:
@@ -333,6 +545,8 @@ for i in range(totalNegatives):
 
             # Get the sample's class:
             rowClass = randomRow[-1]
+            print(randomChoice, rowClass)
+
 
             if rowClass != pastClass:
                 # Randomly choose one of the two images:
@@ -365,7 +579,7 @@ print("[INFO - FaceNet Testing] -- Total pair samples in batch: " + str(len(test
 
 model = faceNet.build(height=imageHeight, width=imageWidth, depth=imageChannels, namesList=["image1", "image2"],
                       embeddingDim=embeddingSize, alpha=lr, distanceCode=similarityMetric,
-                      lrSchedulerParameters=None)
+                      lrSchedulerParameters=lrParameters)
 
 # Load in weights:
 weightsFilePath = outputPath + weightsFilename
@@ -510,14 +724,20 @@ for b in range(len(testBatch)):
 # Compute precision & recall:
 modelPrecision = precision_score(yTest, yPred)
 modelRecall = recall_score(yTest, yPred)
+
+dateNow = time.strftime("%Y-%m-%d %H:%M")
+
+print("[INFO - FaceNet Testing] -- Test time: " + dateNow)
 print("[INFO - FaceNet Testing] -- Used model: {" + weightsFilename + "}")
 print("[INFO - FaceNet Testing] -- Computing Precision and Recall:")
 print((modelPrecision, modelRecall))
 
 # Compute confusion matrix:
 print("[INFO - FaceNet Testing] -- Computing Confusion Matrix:")
-result = confusion_matrix(yTest, yPred, normalize='pred')
+result = confusion_matrix(yTest, yPred)  # normalize='pred'
 print(result)
+accuracy = (result[0][0] + result[1][1]) / datasetSize
+print("Accuracy:", accuracy)
 disp = ConfusionMatrixDisplay(confusion_matrix=result)
 disp.plot()
 plt.show()

@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.8.9
+# Version     :   0.9.1 B
 # Description :   faceNet training script
 
-# Date:       :   Jul 09, 2023
+# Date:       :   Jul 12, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -13,12 +13,15 @@ from imutils import paths
 from glob import glob
 import numpy as np
 import random
+import time
+from datetime import datetime
 
 import tensorflow as tf
-from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import plot_model
+from tensorflow.keras.callbacks import ReduceLROnPlateau
 
 from faceNet import faceNet
+from faceConfig import getNetworkParameters
 
 import matplotlib.pyplot as plt
 
@@ -48,12 +51,14 @@ def showImages(windowName, imageList):
 
 # Shuffles a batch of lists (images) and a numpy array (labels) that
 # share a "row" in a matrix:
-def shuffleSamples(batchSamples, batchLabels):
+def shuffleSamples(batchSamples, batchLabels, randomSeed=42):
     # Get total size (rows) of the batch/matrix:
     batchSize = batchLabels.shape[0]
     # Create the ascending array of choices:
     choicesArray = np.arange(0, batchSize, 1, dtype=int)
+
     # Shuffle the choices array:
+    np.random.seed(randomSeed)
     np.random.shuffle(choicesArray)
 
     # Output containers:
@@ -74,7 +79,8 @@ def shuffleSamples(batchSamples, batchLabels):
 
 
 # Batch generator of positive & negatives pairs:
-def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False):
+def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False, randomDistribution=False, totalSteps=1,
+                  genName="Fuck"):
     # Get total number of pairs:
     totalPairs = len(pairs)
 
@@ -84,16 +90,42 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False):
     # The numpy array of labels (positive=1, negative=-1)
     batchLabels = np.zeros((batchSize, 1))
 
+    stepCounter = 1
+    seed = 0
+
     # This creates a generator, called by the neural network during
     # training...
     while True:
+        # Check step counter:
+        if stepCounter == totalSteps:
+            stepCounter = 1
+
+        # Set the number of positive samples:
+        if not randomDistribution:
+            totalPositivePairs = n_positive
+        else:
+            # Random seed every new batch (epoch):
+            # Seeds:
+            seed = datetime.now().timestamp()
+            random.seed(seed)
+
+            # Choose random positive distribution within the batch:
+            positiveDistribution = random.randint(0, batchSize - 1)
+
+            # This is the pair total count for this batch:
+            totalPositivePairs = positiveDistribution
+
+        # print(" " , genName, " Batch data: ", totalPositivePairs, batchSize)
 
         # The list of images (very row is a pair):
         batchSamples = []
 
         # Randomly choose n positive examples from the pairs list:
         choicesArray = np.arange(0, totalPairs, 1, dtype=int)
-        positiveSamples = np.random.choice(choicesArray, n_positive, replace=True)
+
+        # np.random.seed(int(datetime.now().timestamp()))
+        positiveSamples = np.random.choice(choicesArray, totalPositivePairs, replace=True)
+        # print(" ", genName, positiveSamples[0:9], "(",totalPositivePairs,"/",batchSize,") ")
 
         totalPositiveSamples = len(positiveSamples)
 
@@ -121,7 +153,9 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False):
         sampleIndex = len(batchSamples)
 
         # Get image size (using the first sample):
-        imageHeight, imageWidth = batchSamples[0][0].shape[0:2]
+
+        # imageHeight, imageWidth = batchSamples[0][0].shape[0:2]
+        imageHeight, imageWidth = pairs[0][0].shape[0:2]
 
         # Add negative examples until reach batch size
         while sampleIndex < batchSize:
@@ -173,7 +207,7 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False):
             sampleIndex += 1
 
         # Make sure to shuffle list of samples and labels:
-        batchSamples, batchLabels = shuffleSamples(batchSamples, batchLabels)
+        batchSamples, batchLabels = shuffleSamples(batchSamples, batchLabels, int(time.time()))
 
         # python list To numpy array of numpy arrays...
         batchSamplesArray = np.array(batchSamples)
@@ -186,6 +220,9 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False):
 
         image1Arrays = image1Arrays.reshape(tempDim[0], tempDim[2], tempDim[3], tempDim[4])
         image2Arrays = image2Arrays.reshape(tempDim[0], tempDim[2], tempDim[3], tempDim[4])
+
+        # Increse step counter:
+        stepCounter += 1
 
         # Show the batch:
         if displayImages:
@@ -215,15 +252,22 @@ displaySampleBatch = False
 trainSplit = 0.8  # Dataset split for training
 validationSize = -1  # Use this amount of samples from the validation split for validation, -1 uses the full validation split
 validationStepsPercent = 1.0
+loadWeights = False
+saveWeights = True
 
 # Generator generates this amount of positive pairs for training [0] and validation [1]:
-nPositive = (128, 128)
+nPositive = (256, 256)
+
+# Get the network parameters:
+configParameters = getNetworkParameters()
 
 # CNN image processing shape:
-imageDims = (100, 100, 3)
+imageDims = configParameters["imageDims"]
+
+# Set interpolation type:
 resizeInterpolation = cv2.INTER_AREA
 
-embeddingSize = 512
+embeddingSize = configParameters["embeddingSize"]
 # Use this amount of images per class... -1 uses the whole available images per class,
 # should be <= than the class with the least number of samples:
 imagesPerClass = 55
@@ -231,30 +275,29 @@ imagesPerClass = 55
 # Vertically random-flip samples:
 randomFlip = True
 # Apply high-pass:
-applyHighpass = True
+applyHighpass = configParameters["useHighPass"]
 # Randomly use grayscale:
 randomGrayscale = False
 
 # FaceNet training options:
 # Choose sim metric: euclidean | cosine | sum
-similarityMetric = "cosine"
-lr = 0.001  # 0.0007
-netParameters = {"euclidean": {"epochs": 30, "boundaries": [594, 2970], "values": [0.0035, 0.001, 0.0007]},
-                 # "cosine": {"epochs": 30, "boundaries": [3468], "values": [0.0025, 0.001]},
-                 "cosine": {"epochs": 15, "boundaries": [594, 1485], "values": [0.07, 0.0125, 0.0025]},
-                 # "sum": {"epochs": 35, "boundaries": [2890], "values": [0.001, 0.001 * 0.6]}}
-                 "sum": {"epochs": 20, "boundaries": [594, 1485], "values": [0.07, 0.0125, 0.0045]}}
+similarityMetric = configParameters["similarityMetric"]
+
+# Get the (fixed) learning rate:
+lr = configParameters["lr"]
+
+# Get the training configuration (epochs and lr scheduler config):
+netParameters = configParameters["netParameters"]
 
 # Create this amount of positive pairs...
 # Extra pairs (not guaranteed to be unique):
-extraPairs = 100
+extraPairs = 1485
 # Compute the max number of unique pairs:
 pairsPerClass = (0.5 * (imagesPerClass ** 2.0) - (0.5 * imagesPerClass) - 7e-12) + extraPairs
 pairsPerClass = math.ceil(pairsPerClass)
 
-weightsFilename = "facenetWeights.h5"
-loadWeights = False
-saveWeights = True
+# Set weights file name:
+weightsFilename = "facenetWeights" + "-" + configParameters["weightsFilename"] + ".h5"
 
 # Print tf info:
 print("[INFO - FaceNet Training] -- Tensorflow ver:", tf.__version__)
@@ -305,7 +348,7 @@ for c, currentDirectory in enumerate(classesDirectories):
     totalImages = len(imagePaths)
 
     # Shuffle list:
-    # random.shuffle(imagePaths)
+    random.shuffle(imagePaths)
 
     currentClass = classesImages[c]
     print(" ", "Class: " + currentClass + " Available Samples: " + str(totalImages))
@@ -405,17 +448,35 @@ for currentClass in facesDataset:
 
     # processed samples counter:
     processedPairs = 0
+
+    pairsCreated = {}
+
     for i in range(pairsPerClass):
 
-        choices = list(range(0, classSamples))
-        randomSamples = [0, 0]
+        createPair = True
 
-        # Randomly choose a first sample:
-        randomSamples[0] = random.choice(choices)
+        while createPair:
 
-        # Randomly choose a second sample, excluding the one already
-        # chosen:
-        randomSamples[1] = random.choice(list(set(choices) - set([randomSamples[0]])))
+            choices = list(range(0, classSamples))
+            randomSamples = [0, 0]
+
+            # Randomly choose a first sample:
+            randomSamples[0] = random.choice(choices)
+
+            # Randomly choose a second sample, excluding the one already
+            # chosen:
+            randomSamples[1] = random.choice(list(set(choices) - set([randomSamples[0]])))
+
+            # Has the pair already been created?
+            dictKey = "-".join(str(i) for i in randomSamples)
+            if dictKey not in pairsCreated:
+                # Register created pair:
+                pairsCreated[dictKey] = True
+                # Exit pair-creating loop:
+                createPair = False
+            # else:
+            #     print(" ", "Pair: ", randomSamples,
+            #           "(" + dictKey + ") has already been created, generating new pair...", len(pairsCreated))
 
         # Print the chosen samples:
         print(" ", "Processing pair: " + str(processedPairs), randomSamples)
@@ -440,6 +501,9 @@ for currentClass in facesDataset:
         # Into the positive pairs list:
         positivePairs.append(tempList)
         processedPairs += 1
+
+    # Lemme sort the created pairs cause I wanna check it out...
+    pairsCreated = dict(sorted(pairsCreated.items()))
 
     # Done creating positive pairs for this class:
     totalPairs = len(positivePairs)
@@ -482,8 +546,12 @@ if displaySampleBatch:
 
     # Generate sample batch:
     batchesNames = ["Train", "Validation"]
-    trainBatch = next(generateBatch(pairs=trainPairs, n_positive=5, negative_ratio=2, displayImages=False))
-    validationBatch = next(generateBatch(pairs=validationPairs, n_positive=5, negative_ratio=2, displayImages=False))
+    randomDistribution = False
+
+    trainBatch = next(generateBatch(pairs=trainPairs, n_positive=10, negative_ratio=1, displayImages=False,
+                                    randomDistribution=randomDistribution, totalSteps=1, genName="Train"))
+    validationBatch = next(generateBatch(pairs=validationPairs, n_positive=10, negative_ratio=1, displayImages=False,
+                                         randomDistribution=randomDistribution, totalSteps=1, genName="Validation"))
 
     batchDataset = [trainBatch, validationBatch]
 
@@ -590,16 +658,26 @@ else:
         validationSteps))
 
     # Set the samples' generator:
-    trainGen = generateBatch(pairs=trainPairs, n_positive=nPositive[0], negative_ratio=2)
-    validationGen = generateBatch(pairs=validationPairs, n_positive=nPositive[1], negative_ratio=2)
+    trainGen = generateBatch(pairs=trainPairs, n_positive=nPositive[0], negative_ratio=1, randomDistribution=False,
+                             totalSteps=stepsPerEpoch, genName="Train")
+    validationGen = generateBatch(pairs=validationPairs, n_positive=nPositive[1], negative_ratio=1,
+                                  randomDistribution=False, totalSteps=validationSteps, genName="Validate")
 
     # Train the net:
     trainingEpochs = netParameters[similarityMetric]["epochs"]
+    classWeights = configParameters["classWeights"]
+
+    # LR reducer:
+    reduceLr = ReduceLROnPlateau(monitor="val_loss", factor=0.1, patience=3, mode="auto", min_delta=0.001, cooldown=0,
+                                 min_lr=0.00001, verbose=1)
+    # Model fit:
     H = model.fit(trainGen,
                   validation_data=validationGen,
+                  class_weight=classWeights,
                   steps_per_epoch=stepsPerEpoch,
                   validation_steps=validationSteps,
                   epochs=trainingEpochs,
+                  # callbacks=[reduceLr],
                   verbose=1)
 
     # # Check if model needs to be saved:
@@ -607,6 +685,7 @@ else:
         # Set model path:
         modelPath = outputPath + weightsFilename
         print("[INFO - FaceNet Training] -- Saving model to: " + str(modelPath))
+
         # model.save(modelPath)
         model.save_weights(modelPath)
 
