@@ -1,14 +1,18 @@
 # File        :   facePreprocessor.py
-# Version     :   0.8.1
-# Description :   Detects and crops faces from images. To be used for 
+# Version     :   0.9.5
+# Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Jun 16, 2023
+# Date:       :   Jul 18, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
+import random
+
 import cv2
 import os
+import math
+
 from imutils import paths
 from glob import glob
 
@@ -47,8 +51,8 @@ def varianceDetector(inputImage, blurThreshold=100):
 # Checks eyes:
 def detectEyes(inputImage, imageSize, eyesDetector, displayImage):
     # Resize image:
-    inputImage = cv2.resize(inputImage, imageSize)
-    grayImage = cv2.cvtColor(inputImage, cv2.COLOR_BGR2GRAY)
+    eyesImage = cv2.resize(inputImage, imageSize)
+    grayImage = cv2.cvtColor(eyesImage, cv2.COLOR_BGR2GRAY)
 
     # Run face detector:
     eyeROIs = eyesDetector.detectMultiScale(grayImage, scaleFactor=1.05, minNeighbors=30,
@@ -70,17 +74,17 @@ def detectEyes(inputImage, imageSize, eyesDetector, displayImage):
 
             # Draw the face ROI:
             color = faceDetectorColor[detectorIndex]
-            cv2.rectangle(inputImage, (faceX, faceY), ((faceX + faceWidth), (faceY + faceHeight)), color, 2)
-            showImage("Eyes", inputImage)
+            cv2.rectangle(eyesImage, (faceX, faceY), ((faceX + faceWidth), (faceY + faceHeight)), color, 2)
+            # showImage("Eyes", inputImage)
 
-    return totalEyes
+    return totalEyes, eyesImage
 
 
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 datasetPath = projectPath + "celebrities"
 outputPath = projectPath + "out"
-croppedPath = outputPath + "//cropped"
+croppedPath = outputPath + "//cropped//Test"
 
 # Cascade files:
 cascadeFiles = [("Default", "haarcascade_frontalface_default.xml"), ("Alt", "haarcascade_frontalface_alt.xml"),
@@ -91,17 +95,30 @@ faceDetectorColor = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (0, 255, 255)]
 
 # For testing, process just one class:
 processAll = False
-targetClass = "Bob Odenkirk"
+targetClass = "Uniques"
+
+# Set the random seed:
+randomSeed = 420
 
 # Script Options:
 sampleSize = (32, 32)
 eyesSize = (300, 300)
+
+# Detected face filters:
 testVariance = False
-displayImages = True
+bypassEyesTest = False
+manualFilter = False
+
 writeCropped = True
+
+# Display every processed image?
+displayImages = True
 
 # Load each image path of the dataset:
 print("[FaceNet Pre-processor] Loading images...")
+
+# Set random seed:
+random.seed(randomSeed)
 
 if processAll:
 
@@ -142,6 +159,11 @@ for c, currentDirectory in enumerate(classesDirectories):
     imagePaths = list(paths.list_images(currentDirectory))
     totalImages = len(imagePaths)
 
+    # Randomize images?
+    # Do not randomize for unique pairs:
+    if targetClass != "Uniques":
+        random.shuffle(imagePaths)
+
     currentClass = classesImages[c]
     print("[FaceNet Pre-processor] Class: " + currentClass + " Samples: " + str(totalImages))
 
@@ -151,9 +173,11 @@ for c, currentDirectory in enumerate(classesDirectories):
     # Create output directory:
     directoryExists = os.path.isdir(writePath)
     if not directoryExists:
+
         print("[FaceNet Pre-processor] Creating Directory: " + writePath)
         os.mkdir(writePath)
         directoryExists = os.path.isdir(writePath)
+
         if directoryExists:
             print("[FaceNet Pre-processor] Successfully created directory: " + writePath)
 
@@ -161,6 +185,13 @@ for c, currentDirectory in enumerate(classesDirectories):
     sampleCount = 0
     faceCount = 0
     writtenImages = 0
+
+    # Unique pair counter:
+    pairCount = 0.5
+
+    # Last saved image name:
+    lastSaved = "-"
+    lastChar = "-"
 
     for currentPath in imagePaths:
 
@@ -172,13 +203,12 @@ for c, currentDirectory in enumerate(classesDirectories):
         grayImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2GRAY)
 
         sampleCount += 1
+
         # Show image:
         if displayImages:
             showImage("Class: " + currentClass + " Sample: " + str(sampleCount), grayImage)
 
         # Detect face with each detector:
-        # for faceDetector in faceDetectors:
-
         # Set default face detector via index:
         detectorIndex = 0
         searchDetector = True
@@ -200,7 +230,7 @@ for c, currentDirectory in enumerate(classesDirectories):
 
             # Get the total ROIS detected:
             totalFaces = len(facesROIs)
-            print("Detector: " + detectorName + " Total Faces found: " + str(totalFaces))
+            print("[FaceNet Pre-processor] Detector: " + detectorName + " Total Faces found: " + str(totalFaces))
 
             # Switch face detector if no detections where found:
             if totalFaces > 0 or detectorIndex == totalFaceDetectors - 1:
@@ -239,7 +269,24 @@ for c, currentDirectory in enumerate(classesDirectories):
                 showImage("Cropped Face", croppedFace)
 
             # Check eyes:
-            totalEyes = detectEyes(croppedFace, eyesSize, eyeDetector, displayImages)
+            totalEyes, eyesImage = detectEyes(croppedFace, eyesSize, eyeDetector, displayImages)
+
+            # Show detected eyes on input:
+            imageOk = True
+            if displayImages:
+                windowName = "Detected Eyes"
+                cv2.namedWindow(windowName, cv2.WINDOW_NORMAL)
+                cv2.imshow(windowName, eyesImage)
+                key = cv2.waitKey(0)
+
+                # Inspect and manually discard samples:
+                if manualFilter:
+                    print(key)
+                    if key == ord("e"):  # Press "e" to save image
+                        print("[FaceNet Pre-processor] Saving sample to disk...")
+                    else:
+                        print("[FaceNet Pre-processor] Skipping sample...")
+                        imageOk = False
 
             if testVariance:
                 # Resize image:
@@ -249,15 +296,68 @@ for c, currentDirectory in enumerate(classesDirectories):
                 # Check variance:
                 goodVariance = varianceDetector(croppedFace, 100)
 
+            # Check image type (A/B) for uniques pairs:
+            if targetClass == "Uniques":
+                if sampleCount % 2 == 1:
+                    currentChar = "A"
+                else:
+                    currentChar = "B"
+
             # Save image to outputDirectory:
-            if totalEyes > 0:
-                if writeCropped:
-                    imagePath = writePath + "sample-" + str(faceCount) + "-" + str(subfaceCount) + ".png"
+            # Do not save the image if no eyes have been detected
+            # Option is overriden by the "eyes check" flag:
+            if totalEyes > 0 or bypassEyesTest:
+                # Check manual filter:
+                if writeCropped and imageOk:
+
+                    # Check class type:
+                    if targetClass != "Uniques":
+
+                        # Not unique pair, straightforward file name:
+                        imageName = str(faceCount) + "-" + str(subfaceCount)
+
+                    else:
+
+                        # Check that this is truly a pair in the A-B sequence:
+                        print("Pair:", currentChar, lastChar)
+                        print("Last Saved:", lastSaved)
+                        if currentChar == lastChar:
+                            # Missed one image from this pair...
+                            print("[FaceNet Pre-processor] Skipped a pair image...")
+
+                            print(pairCount)
+
+                            # Delete last saved...
+                            if currentChar == "A":
+                                print("[FaceNet Pre-processor] Deleting last saved...: " + lastSaved)
+                                os.remove(lastSaved)
+                                pairCount = pairCount - 0.5
+                                # continue
+
+                            else:
+                                # Buffer the char used:
+                                lastChar = "-"
+                                print("[FaceNet Pre-processor] Skipping image...")
+                                # Abort:
+                                continue
+
+                        # Set name for unique pair:
+                        imageName = str(math.ceil(pairCount)) + "-" + currentChar
+                        pairCount = pairCount + 0.5
+                        # Buffer the char used:
+                        lastChar = currentChar
+
+                    # Write the image:
+                    imagePath = writePath + "pair-" + imageName + ".png"
+                    # Save the last file path written:
+                    lastSaved = imagePath
                     writeImage(imagePath, croppedFace)
                     writtenImages += 1
 
+    # Get a couple of stats:
     detectionRate = (faceCount / totalImages) * 100
     writtenRate = (writtenImages / totalImages) * 100
+
     print("[FaceNet Pre-processor] Detected faces rate: " + str(faceCount) + "/" + str(
         totalImages) + " [" + f"{detectionRate:.4f}" + "%]" + " Written: " + str(writtenImages) + "/" + str(
         totalImages) + " [" + f"{writtenRate:.4f}" + "%]")
