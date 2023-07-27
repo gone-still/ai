@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.9.1 B
+# Version     :   0.9.5
 # Description :   faceNet training script
 
-# Date:       :   Jul 12, 2023
+# Date:       :   Jul 26, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -79,132 +79,60 @@ def shuffleSamples(batchSamples, batchLabels, randomSeed=42):
 
 
 # Batch generator of positive & negatives pairs:
-def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False, randomDistribution=False, totalSteps=1,
-                  genName="Fuck"):
+def generateBatch(pairsList, totalSteps, batchSize=10, displayImages=False, randomIndex=False):
     # Get total number of pairs:
-    totalPairs = len(pairs)
+    totalPairs = len(pairsList)
 
-    # Compute the batch size and the positive and negative pairs ratios:
-    batchSize = n_positive * (1 + negative_ratio)
+    # Get total number of samples:
+    totalSamples = batchSize * totalSteps
 
     # The numpy array of labels (positive=1, negative=-1)
     batchLabels = np.zeros((batchSize, 1))
 
-    stepCounter = 1
-    seed = 0
+    # Step counter:
+    stepCounter = 0
+    randomChoice = 0
+
+    # Choices array:
+    # if randomIndex:
+    #     choicesArray = np.arange(0, totalPairs, 1, dtype=int)
+    #     randomChoice = np.random.choice(choicesArray, 1, replace=False)[0]
 
     # This creates a generator, called by the neural network during
     # training...
     while True:
         # Check step counter:
         if stepCounter == totalSteps:
-            stepCounter = 1
+            stepCounter = 0
+            # if randomIndex:
+            #     randomChoice = np.random.choice(choicesArray, 1, replace=False)[0]
 
-        # Set the number of positive samples:
-        if not randomDistribution:
-            totalPositivePairs = n_positive
-        else:
-            # Random seed every new batch (epoch):
-            # Seeds:
-            seed = datetime.now().timestamp()
-            random.seed(seed)
+        # print(stepCounter)
+        # print(" 1 Fuck ", stepCounter, randomChoice)
 
-            # Choose random positive distribution within the batch:
-            positiveDistribution = random.randint(0, batchSize - 1)
-
-            # This is the pair total count for this batch:
-            totalPositivePairs = positiveDistribution
-
-        # print(" " , genName, " Batch data: ", totalPositivePairs, batchSize)
-
-        # The list of images (very row is a pair):
+        # Store batch samples here:
         batchSamples = []
 
-        # Randomly choose n positive examples from the pairs list:
-        choicesArray = np.arange(0, totalPairs, 1, dtype=int)
-
-        # np.random.seed(int(datetime.now().timestamp()))
-        positiveSamples = np.random.choice(choicesArray, totalPositivePairs, replace=True)
-        # print(" ", genName, positiveSamples[0:9], "(",totalPositivePairs,"/",batchSize,") ")
-
-        totalPositiveSamples = len(positiveSamples)
-
         # Store the positive random samples in the batch array:
-        for i in range(totalPositiveSamples):
-            # Get current pair of images:
-            randomSample = positiveSamples[i]
-            currentSample = pairs[randomSample]
+        for i in range(batchSize):
+            # Set list starting point:
+            listIndex = (batchSize * stepCounter) + i
+            if listIndex > (totalSamples - 1):
+                listIndex = 0
 
-            # Scale data:
-            # currentSample[0] = currentSample[0].astype("float") / 255.0
-            # currentSample[1] = currentSample[1].astype("float") / 255.0
+            # Get current pair of images:
+            listItem = pairsList[listIndex]
+            currentSample = (listItem[0], listItem[1])
 
             # Check images (if proper data type):
             if displayImages:
-                showImage("[Positive] Sample 1", currentSample[0])
-                showImage("[Positive] Sample 2", currentSample[1])
+                showImage("Batch Sample 1", currentSample[0])
+                showImage("Batch Sample 2", currentSample[1])
 
             # Into the batch:
             batchSamples.append([currentSample[0], currentSample[1]])
             # Pair label:
-            batchLabels[i] = 1
-
-        # Set the sample index:
-        sampleIndex = len(batchSamples)
-
-        # Get image size (using the first sample):
-
-        # imageHeight, imageWidth = batchSamples[0][0].shape[0:2]
-        imageHeight, imageWidth = pairs[0][0].shape[0:2]
-
-        # Add negative examples until reach batch size
-        while sampleIndex < batchSize:
-
-            # Randomly generated negative sample row here:
-            tempList = []
-            pastClass = -1
-
-            # Randomly choose two sample rows:
-            for s in range(2):
-                getRows = True
-                while getRows:
-                    # Get a random row from the positive pairs list,
-                    # "Flatten" to an integer, since the return value is
-                    # an array:
-                    randomChoice = np.random.choice(choicesArray, 1)[0]
-
-                    # Actually Get the random row:
-                    randomRow = pairs[randomChoice]
-
-                    # Get the sample's class:
-                    rowClass = randomRow[-1]
-
-                    if rowClass != pastClass:
-                        # Randomly choose one of the two images:
-                        randomChoice = random.randint(0, 1)
-                        randomSample = randomRow[randomChoice]
-
-                        # Scale data:
-                        # randomSample = randomSample.astype("float") / 255.0
-
-                        # Show the random sample:
-                        if displayImages:
-                            showImage("randomSample: " + str(s), randomSample)
-
-                        # Into the temp list:
-                        tempList.append(randomSample)
-                        # Stop the loop:
-                        getRows = False
-
-                        # Present is now past:
-                        pastClass = rowClass
-
-            # Got the two negative samples, thus the negative pair is ready:
-            batchSamples.append(tempList)
-            # This is a negative pair:
-            batchLabels[sampleIndex] = 0
-            # Increase the "batch processing" index:
-            sampleIndex += 1
+            batchLabels[i] = listItem[2]
 
         # Make sure to shuffle list of samples and labels:
         batchSamples, batchLabels = shuffleSamples(batchSamples, batchLabels, int(time.time()))
@@ -221,18 +149,20 @@ def generateBatch(pairs, n_positive=2, negative_ratio=2, displayImages=False, ra
         image1Arrays = image1Arrays.reshape(tempDim[0], tempDim[2], tempDim[3], tempDim[4])
         image2Arrays = image2Arrays.reshape(tempDim[0], tempDim[2], tempDim[3], tempDim[4])
 
-        # Increse step counter:
+        # Get image size (using the first sample):
+        imageHeight, imageWidth = pairsList[0][0].shape[0:2]
+
+        # Increase step counter:
         stepCounter += 1
 
         # Show the batch:
         if displayImages:
-            for h in range(6):
+            for h in range(tempDim[0]):
                 print(h, batchLabels[h])
                 showImage("[Batch] Sample 1", image1Arrays[h][0:imageHeight])
                 showImage("[Batch] Sample 2", image2Arrays[h][0:imageHeight])
 
         outDict = {"image1": image1Arrays, "image2": image2Arrays}, batchLabels
-        # outDict = {"image1": batch[:, 0], "image2": batch[:, 1:genresVectorLength + 1]}, batch[:, -1]
         yield outDict
 
 
@@ -256,7 +186,12 @@ loadWeights = False
 saveWeights = True
 
 # Generator generates this amount of positive pairs for training [0] and validation [1]:
-nPositive = (256, 256)
+# This is the "batch size" for positives:
+nPositive = {"Train": 256, "Test": 256}
+
+# Negative portion:
+# Batch size: nPositive + negativeRatio * nPositive
+negativeRatio = 1.0
 
 # Get the network parameters:
 configParameters = getNetworkParameters()
@@ -373,11 +308,12 @@ for c, currentDirectory in enumerate(classesDirectories):
         # Load the image:
         currentImage = cv2.imread(currentPath)
 
-        # Flip?
-        flipInt = random.randint(0, 1)
-        if flipInt == 1:
-            # Flip along the y axis:
-            currentImage = cv2.flip(currentImage, 1)
+        # Apply vertical Flip?
+        if randomFlip:
+            flipInt = random.randint(0, 1)
+            if flipInt == 1:
+                # Flip along the y axis:
+                currentImage = cv2.flip(currentImage, 1)
 
         # Use grayscale?
         if randomGrayscale:
@@ -541,6 +477,123 @@ print("[INFO - FaceNet Training] -- Validation dataset has: " + str(validationSe
     validationSplit) + ") samples out of: " + str(
     listSize))
 
+# This Dict contains the full dataset: positive and negative samples
+pairsDataset = {"Train": [], "Test": []}
+
+# Set train/validation batch sizes:
+# trainingDSSize = len(trainPairs) * (1 + negativeRatio)
+# validationDSSize = len(validationPairs) * (1 + negativeRatio)
+datasetData = {"Train": {"size": len(trainPairs), "list": trainPairs},
+               "Test": {"size": len(validationPairs), "list": validationPairs}}
+
+# Create the complete dataset -> train + validation:
+for currentDataset in ["Train", "Test"]:
+
+    # Set some local counters:
+    samplesCounters = [0, 0]  # Positive, Negative
+
+    # Get dataset size:
+    currentSize = datasetData[currentDataset]["size"]
+    # Get list:
+    currentList = datasetData[currentDataset]["list"]
+
+    print(currentDataset + " - Populating Dataset with [POSITIVE] pairs. [" + str(currentSize) + "]")
+
+    # Process positive pairs:
+    for i in range(currentSize):
+
+        # Get current list item:
+        listItem = currentList[i]  # Pair 1, Pair 2, Class
+        # Get images:
+        currentSamples = (listItem[0], listItem[1])
+        # Check images (if proper data type):
+        if displayImages:
+            showImage("[Positive] Sample 1", currentSamples[0])
+            showImage("[Positive] Sample 2", currentSamples[1])
+
+        # Into the list -> Sample 1, Sample 2, Pair type (1-Pos|0-Neg)
+        pairsDataset[currentDataset].append([currentSamples[0], currentSamples[1], 1])
+        # Counter goes up:
+        samplesCounters[0] += 1
+
+    # Print the number of processed pairs so far:
+    print(currentDataset + " - Total [POSITIVE] pairs stored:", samplesCounters[0])
+
+    # Set array from where the random negative samples will be drawn from:
+    choicesArray = np.arange(0, currentSize, 1, dtype=int)
+
+    # Process negative pairs:
+    totalNegatives = currentSize * negativeRatio
+    # Round to the nearest even:
+    totalNegatives = int(totalNegatives - totalNegatives % 2)
+
+    print(currentDataset + " - Populating Dataset with [NEGATIVE] pairs. [" + str(totalNegatives) + "]")
+
+    for j in range(totalNegatives):
+
+        # Randomly generated negative sample row here:
+        tempList = []
+        pastClass = -1
+
+        # Randomly choose two sample rows:
+        for s in range(2):
+            getRows = True
+            while getRows:
+                # Get a random row from the positive pairs list,
+                # "Flatten" to an integer, since the return value is
+                # an array:
+                randomChoice = np.random.choice(choicesArray, 1)[0]
+
+                # Actually Get the random row:
+                randomRow = currentList[randomChoice]
+
+                # Get the sample's class:
+                rowClass = randomRow[-1]
+                # print(j, rowClass, pastClass)
+
+                if rowClass != pastClass:
+                    # Randomly choose one of the two images:
+                    randomChoice = random.randint(0, 1)
+                    randomSample = randomRow[randomChoice]
+
+                    # Scale data:
+                    # randomSample = randomSample.astype("float") / 255.0
+
+                    # Show the random sample:
+                    if displayImages:
+                        showImage("randomSample: " + str(s), randomSample)
+
+                    # Into the temp list:
+                    tempList.append(randomSample)
+                    # Stop the loop:
+                    getRows = False
+
+                    # Present is now past:
+                    pastClass = rowClass
+
+        # This is a negative pair:
+        tempList.append(0)
+
+        # Got the two negative samples, thus the negative pair is ready:
+        pairsDataset[currentDataset].append(tempList)
+        # Counter goes up:
+        samplesCounters[1] += 1
+
+    # Print the number of processed pairs so far:
+    print(currentDataset + " - Total [NEGATIVE] pairs stored:", samplesCounters[1])
+
+    # Shake, shake, shake, Senora, shake your body line:
+    # print([c[-1] for c in pairsDataset[currentDataset][0:5]])
+    random.shuffle(pairsDataset[currentDataset])
+    if currentDataset == "Test":
+        for i in range(10):
+            print("x ", i)
+            random.shuffle(pairsDataset[currentDataset])
+    # print([c[-1] for c in pairsDataset[currentDataset][0:5]])
+
+print("Train pairs stored:", len(pairsDataset["Train"]))
+print("Test pairs stored:", len(pairsDataset["Test"]))
+
 # Check batch info:
 if displaySampleBatch:
 
@@ -548,10 +601,9 @@ if displaySampleBatch:
     batchesNames = ["Train", "Validation"]
     randomDistribution = False
 
-    trainBatch = next(generateBatch(pairs=trainPairs, n_positive=10, negative_ratio=1, displayImages=False,
-                                    randomDistribution=randomDistribution, totalSteps=1, genName="Train"))
-    validationBatch = next(generateBatch(pairs=validationPairs, n_positive=10, negative_ratio=1, displayImages=False,
-                                         randomDistribution=randomDistribution, totalSteps=1, genName="Validation"))
+    trainBatch = next(generateBatch(pairsList=pairsDataset["Train"], totalSteps=1, batchSize=10, displayImages=False))
+    validationBatch = next(
+        generateBatch(pairsList=pairsDataset["Test"], totalSteps=1, batchSize=10, displayImages=False))
 
     batchDataset = [trainBatch, validationBatch]
 
@@ -650,18 +702,17 @@ else:
     print("[INFO - FaceNet Training] -- Model graph saved to: " + graphPath)
 
     # Set the test/validation datasets portions:
-    stepsPerEpoch = len(trainPairs) // nPositive[0]
-    validationSteps = len(validationPairs) // nPositive[1]
+    stepsPerEpoch = len(pairsDataset["Train"]) // nPositive["Train"]
+    validationSteps = len(pairsDataset["Test"]) // nPositive["Test"]
     # validationSteps = int(validationStepsPercent * stepsPerEpoch)  # len(testPairs) // nPositive
 
     print("[INFO - FaceNet Training] -- Steps per epoch -> Training: " + str(stepsPerEpoch) + " Validation: " + str(
         validationSteps))
 
     # Set the samples' generator:
-    trainGen = generateBatch(pairs=trainPairs, n_positive=nPositive[0], negative_ratio=1, randomDistribution=False,
-                             totalSteps=stepsPerEpoch, genName="Train")
-    validationGen = generateBatch(pairs=validationPairs, n_positive=nPositive[1], negative_ratio=1,
-                                  randomDistribution=False, totalSteps=validationSteps, genName="Validate")
+    trainGen = generateBatch(pairsList=pairsDataset["Train"], totalSteps=stepsPerEpoch, batchSize=nPositive["Train"])
+    validationGen = generateBatch(pairsList=pairsDataset["Test"], totalSteps=validationSteps,
+                                  batchSize=nPositive["Test"])
 
     # Train the net:
     trainingEpochs = netParameters[similarityMetric]["epochs"]

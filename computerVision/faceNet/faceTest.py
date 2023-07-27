@@ -1,5 +1,5 @@
 # File        :   faceTest.py
-# Version     :   0.10.6
+# Version     :   0.11.0
 # Description :   faceNet test script
 
 # Date:       :   Jul 17, 2023
@@ -78,7 +78,7 @@ similarityMetric = configParameters["similarityMetric"]
 weightsFilename = "facenetWeights" + "-" + configParameters["weightsFilename"] + ".h5"
 
 # Write folder:
-resultsPath = outputPath + "results//cosine7//"
+resultsPath = outputPath + "results//cosine10//"
 
 # Total positive pairs & negative pairs to be tested:
 # startImage = 55  # Start at this image for test
@@ -90,8 +90,9 @@ randomSeed = 420
 pairsPerClass = 200
 
 displayImages = False
+displayUniques = False
 showClassified = False
-includeUniques = True
+includeUniques = False
 writeAll = False
 
 # Skip images from this class:
@@ -362,7 +363,7 @@ if includeUniques:
     uniqueCount = 0
 
     # Check the images:
-    for i in range(totalImages):
+    for i, currentPath in enumerate(imagePaths):
         # Set the image name:
         if i % 2 == 0:
             lastChar = "A"
@@ -370,8 +371,8 @@ if includeUniques:
             lastChar = "B"
 
         # Create complete path:
-        imageName = filename[0] + "-" + str(i + 1) + "-" + lastChar
-        currentPath = uniquesDirectory + imageName + ".png"
+        # imageName = filename[0] + "-" + str(i + 1) + "-" + lastChar
+        # currentPath = uniquesDirectory + imageName + ".png"
         print("Current Unique image: ", currentPath)
         # Load the image:
         currentImage = cv2.imread(currentPath)
@@ -419,7 +420,37 @@ if includeUniques:
             # Into the positive pairs list:
             uniquePairs.append(tempList)
             uniqueCount += 1
+
+            # Clear list:
             tempList = []
+
+            if displayUniques:
+
+                # Horizontally concatenate images:
+                imageList = [uniquePairs[-1][0], uniquePairs[-1][1]]
+                stackedImage = cv2.hconcat(imageList)
+                imageDimensions = len(stackedImage.shape)
+
+                if imageDimensions < 3:
+                    (height, width) = stackedImage.shape
+                    depth = 1
+                else:
+                    (height, width, depth) = stackedImage.shape
+
+                # Get image type:
+                imageType = stackedImage.dtype
+
+                # Check type and convert to uint8:
+                if imageType != np.dtype("uint8"):
+                    stackedImage = stackedImage * 255.0
+                    stackedImage = stackedImage.clip(0, 255).astype(np.uint8)
+
+                    # Convert channels:
+                    if depth != 3:
+                        stackedImage = cv2.cvtColor(stackedImage, cv2.COLOR_GRAY2BGR)
+
+                # Show image:
+                showImage("Unique Pair", stackedImage)
 
     # Shuffle the list of unique pairs:
     random.shuffle(uniquePairs)
@@ -545,8 +576,7 @@ for i in range(totalNegatives):
 
             # Get the sample's class:
             rowClass = randomRow[-1]
-            print(randomChoice, rowClass)
-
+            # print(randomChoice, rowClass)
 
             if rowClass != pastClass:
                 # Randomly choose one of the two images:
@@ -725,19 +755,22 @@ for b in range(len(testBatch)):
 modelPrecision = precision_score(yTest, yPred)
 modelRecall = recall_score(yTest, yPred)
 
+# Print the results:
 dateNow = time.strftime("%Y-%m-%d %H:%M")
-
+print(" ---------------------------------------------------------- ")
 print("[INFO - FaceNet Testing] -- Test time: " + dateNow)
 print("[INFO - FaceNet Testing] -- Used model: {" + weightsFilename + "}")
+print("[INFO - FaceNet Testing] -- Params - includeUniques:", includeUniques, "positivePortion:", positivePortion)
 print("[INFO - FaceNet Testing] -- Computing Precision and Recall:")
 print((modelPrecision, modelRecall))
 
-# Compute confusion matrix:
+# Compute and print confusion matrix:
 print("[INFO - FaceNet Testing] -- Computing Confusion Matrix:")
 result = confusion_matrix(yTest, yPred)  # normalize='pred'
 print(result)
 accuracy = (result[0][0] + result[1][1]) / datasetSize
 print("Accuracy:", accuracy)
+
 disp = ConfusionMatrixDisplay(confusion_matrix=result)
 disp.plot()
 plt.show()
