@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.9.5
+# Version     :   0.9.9
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Jul 18, 2023
+# Date:       :   Jul 27, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -12,6 +12,8 @@ import random
 import cv2
 import os
 import math
+
+import mtcnn
 
 from imutils import paths
 from glob import glob
@@ -49,16 +51,30 @@ def varianceDetector(inputImage, blurThreshold=100):
 
 
 # Checks eyes:
-def detectEyes(inputImage, imageSize, eyesDetector, displayImage):
+def detectEyes(mtcnnEyes, inputImage, imageSize, eyesDetector, displayImage=False, eyesColor=(0, 255, 0)):
     # Resize image:
+    originalHeight, originalWidth = inputImage.shape[0:2]
     eyesImage = cv2.resize(inputImage, imageSize)
-    grayImage = cv2.cvtColor(eyesImage, cv2.COLOR_BGR2GRAY)
 
-    # Run face detector:
-    eyeROIs = eyesDetector.detectMultiScale(grayImage, scaleFactor=1.05, minNeighbors=30,
-                                            minSize=(30, 30),
-                                            # maxSize=(150, 150),
-                                            flags=cv2.CASCADE_SCALE_IMAGE)
+    # Default scale (no scale):
+    xScale = 1.0
+    yScale = 1.0
+
+    if not mtcnnEyes:
+        # Detect eyes via cascade:
+        grayImage = cv2.cvtColor(eyesImage, cv2.COLOR_BGR2GRAY)
+
+        # Run face detector:
+        eyeROIs = eyesDetector.detectMultiScale(grayImage, scaleFactor=1.05, minNeighbors=30,
+                                                minSize=(30, 30),
+                                                # maxSize=(150, 150),
+                                                flags=cv2.CASCADE_SCALE_IMAGE)
+    else:
+        # Eyes already detected by mtcnnEyes (if any):
+        eyeROIs = mtcnnEyes
+        # Resize them ROIs:
+        xScale = imageSize[0] / originalWidth
+        yScale = imageSize[1] / originalHeight
 
     totalEyes = len(eyeROIs)
     print("Eyes Found: " + str(totalEyes))
@@ -67,31 +83,46 @@ def detectEyes(inputImage, imageSize, eyesDetector, displayImage):
 
         for currentROI in eyeROIs:
             # Get the face ROI:
-            faceX = int(currentROI[0])
-            faceY = int(currentROI[1])
-            faceWidth = int(currentROI[2])
-            faceHeight = int(currentROI[3])
+            faceX = int(currentROI[0] * xScale)
+            faceY = int(currentROI[1] * yScale)
+            faceWidth = int(currentROI[2] * xScale)
+            faceHeight = int(currentROI[3] * yScale)
 
             # Draw the face ROI:
-            color = faceDetectorColor[detectorIndex]
-            cv2.rectangle(eyesImage, (faceX, faceY), ((faceX + faceWidth), (faceY + faceHeight)), color, 2)
-            # showImage("Eyes", inputImage)
+            # color = faceDetectorColor[detectorIndex]
+            cv2.rectangle(eyesImage, (faceX, faceY), ((faceX + faceWidth), (faceY + faceHeight)), eyesColor, 2)
+            # showImage("Eyes", eyesImage)
 
     return totalEyes, eyesImage
+
+
+# Rotates an image by a given angle (degs):
+def rotateImage(inputImage, angle, imageCenter=None):
+    # Grab the dimensions of the image and calculate the center of the
+    # image
+    (h, w) = inputImage.shape[:2]
+    if not imageCenter:
+        (cX, cY) = (w // 2, h // 2)
+    else:
+        cX, cY = (imageCenter[0], imageCenter[1])
+    # rotate our image by 45 degrees around the center of the image
+    M = cv2.getRotationMatrix2D((cX, cY), angle, 1.0)
+    rotatedImage = cv2.warpAffine(inputImage, M, (w, h))
+    return rotatedImage
 
 
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 datasetPath = projectPath + "celebrities"
 outputPath = projectPath + "out"
-croppedPath = outputPath + "//cropped//Test"
+croppedPath = outputPath + "//cropped//"
 
 # Cascade files:
 cascadeFiles = [("Default", "haarcascade_frontalface_default.xml"), ("Alt", "haarcascade_frontalface_alt.xml"),
                 ("Alt 2", "haarcascade_frontalface_alt2.xml"), ("Profile", "haarcascade_profileface.xml")]
 
 # Cascade colors:
-faceDetectorColor = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (0, 255, 255)]
+faceDetectorColor = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (0, 255, 255), (192, 0, 192)]
 
 # For testing, process just one class:
 processAll = False
@@ -104,18 +135,31 @@ randomSeed = 420
 sampleSize = (32, 32)
 eyesSize = (300, 300)
 
+# Eye proportions (from eye centroid to eye bbox via mtcnn):
+wRatio = 0.28
+hRatio = 0.13
+
 # Detected face filters:
 testVariance = False
 bypassEyesTest = False
 manualFilter = False
+rotateCrop = True
 
 writeCropped = True
 
 # Display every processed image?
-displayImages = True
+displayImages = False
+
+# Save png version of input?
+# (ignore if the image is already png)
+savePng = True
+deleteOriginal = True
 
 # Load each image path of the dataset:
 print("[FaceNet Pre-processor] Loading images...")
+
+# mtcnn detector:
+detector = mtcnn.MTCNN()
 
 # Set random seed:
 random.seed(randomSeed)
@@ -149,6 +193,9 @@ for cascadeFile in cascadeFiles:
 totalFaceDetectors = len(faceDetectors)
 print("[FaceNet Pre-processor] Face detectors loaded: " + str(totalFaceDetectors))
 
+# Get total of detectors used in extractor:
+maxDetectors = totalFaceDetectors - 1
+
 # Load the eye detector cascade:
 cascadePath = projectPath + "cascades//" + "haarcascade_eye_3.xml"
 eyeDetector = cv2.CascadeClassifier(cascadePath)
@@ -168,7 +215,7 @@ for c, currentDirectory in enumerate(classesDirectories):
     print("[FaceNet Pre-processor] Class: " + currentClass + " Samples: " + str(totalImages))
 
     # Set cropped output path:
-    writePath = croppedPath + "//" + currentClass + "//"
+    writePath = croppedPath + currentClass + "//"
 
     # Create output directory:
     directoryExists = os.path.isdir(writePath)
@@ -199,6 +246,20 @@ for c, currentDirectory in enumerate(classesDirectories):
         currentImage = cv2.imread(currentPath)
         currentImageCopy = currentImage.copy()
 
+        # Save png version:
+        if savePng:
+            # Get file name:
+            filenameString = currentPath.split(".")
+            # Check extension before saving & deleting:
+            if filenameString[1] != "png":
+                filenameString = filenameString[0] + ".png"
+                print("[FaceNet Pre-processor] Writing PNG image: "+filenameString)
+                writeImage(filenameString, currentImage)
+                # Remove original image:
+                if deleteOriginal:
+                    print("[FaceNet Pre-processor] Removing File: "+currentPath)
+                    os.remove(currentPath)
+
         # BGR to gray:
         grayImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2GRAY)
 
@@ -215,28 +276,91 @@ for c, currentDirectory in enumerate(classesDirectories):
         facesROIs = []
         totalFaces = 0
 
+        # mtcnn flag:
+        useMtcnn = False
+        # mtcnn eyes info:
+        mtcnnEyes = []
+
         while searchDetector:
 
-            # Set face detector:
-            faceDetector = faceDetectors[detectorIndex]
-            # Attempt to detect a face in the image:
-            detectorName = cascadeFiles[detectorIndex][0]
+            if not useMtcnn:
 
-            # Run face detector:
-            facesROIs = faceDetector.detectMultiScale(grayImage, scaleFactor=1.05, minNeighbors=32,
-                                                      minSize=(50, 50),
-                                                      # maxSize=(150, 150),
-                                                      flags=cv2.CASCADE_SCALE_IMAGE)
+                # Set face detector:
+                faceDetector = faceDetectors[detectorIndex]
+                # Attempt to detect a face in the image:
+                detectorName = cascadeFiles[detectorIndex][0]
+
+                # Run face detector:
+                facesROIs = faceDetector.detectMultiScale(grayImage, scaleFactor=1.05, minNeighbors=32,
+                                                          minSize=(50, 50),
+                                                          # maxSize=(150, 150),
+                                                          flags=cv2.CASCADE_SCALE_IMAGE)
+
+            else:
+
+                # Set the deep face detector:
+                detectorName = "MTCNN"
+
+                # Store original width and height:
+                originalHeight, originalWidth = currentImage.shape[0:2]
+
+                # BGR to RGB:
+                rgbImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2RGB)
+
+                # Run detector:
+                faces = detector.detect_faces(rgbImage)
+
+                # faces is an array with all the bounding boxes detected.
+                # Store results in a list:
+                for face in faces:
+
+                    # Get coordinates from dict:
+                    x, y, w, h = face["box"]
+
+                    # Into the list:
+                    facesROIs = list(facesROIs)
+                    facesROIs.append([x, y, w, h])
+
+                    # Get eyes info:
+                    keypoints = face["keypoints"]
+
+                    # Compute bb width and height:
+                    eyeWidth = wRatio * w
+                    eyeHeight = hRatio * h
+
+                    # Process both eyes:
+                    for currentKeypoint in ["left_eye", "right_eye"]:
+                        # Get eyes:
+                        currentEyes = keypoints[currentKeypoint]
+
+                        # Get centroids (local on cropped image):
+                        eyeX = currentEyes[0] - x
+                        eyeY = currentEyes[1] - y
+
+                        # Compute top left corner:
+                        leftX = eyeX - 0.5 * eyeWidth
+                        leftY = eyeY - 0.5 * eyeHeight
+
+                        # Into the list:
+                        mtcnnEyes.append([int(leftX), int(leftY), int(eyeWidth), int(eyeHeight)])
+
+                # Set detector index (mtcnn is last one)
+                detectorIndex += 1
+                searchDetector = False
 
             # Get the total ROIS detected:
             totalFaces = len(facesROIs)
             print("[FaceNet Pre-processor] Detector: " + detectorName + " Total Faces found: " + str(totalFaces))
 
             # Switch face detector if no detections where found:
-            if totalFaces > 0 or detectorIndex == totalFaceDetectors - 1:
+            if totalFaces > 0:
                 searchDetector = False
             else:
-                detectorIndex += 1
+                if detectorIndex < maxDetectors:
+                    detectorIndex += 1
+                else:
+                    print("[FaceNet Pre-processor] Switching to mtcnn face detector...")
+                    useMtcnn = True
 
         # Break loop if no detections
         if totalFaces == 0:
@@ -269,25 +393,9 @@ for c, currentDirectory in enumerate(classesDirectories):
                 showImage("Cropped Face", croppedFace)
 
             # Check eyes:
-            totalEyes, eyesImage = detectEyes(croppedFace, eyesSize, eyeDetector, displayImages)
+            totalEyes, eyesImage = detectEyes(mtcnnEyes, croppedFace, eyesSize, eyeDetector, displayImages, color)
 
-            # Show detected eyes on input:
-            imageOk = True
-            if displayImages:
-                windowName = "Detected Eyes"
-                cv2.namedWindow(windowName, cv2.WINDOW_NORMAL)
-                cv2.imshow(windowName, eyesImage)
-                key = cv2.waitKey(0)
-
-                # Inspect and manually discard samples:
-                if manualFilter:
-                    print(key)
-                    if key == ord("e"):  # Press "e" to save image
-                        print("[FaceNet Pre-processor] Saving sample to disk...")
-                    else:
-                        print("[FaceNet Pre-processor] Skipping sample...")
-                        imageOk = False
-
+            # Check image variance:
             if testVariance:
                 # Resize image:
                 varianceInput = cv2.resize(croppedFace, sampleSize)
@@ -302,6 +410,42 @@ for c, currentDirectory in enumerate(classesDirectories):
                     currentChar = "A"
                 else:
                     currentChar = "B"
+
+            # Rotate output image?:
+            if rotateCrop:
+                randomAngle = random.randint(-10, 10)
+                print("[FaceNet Pre-processor] Rotating cropped face by: " + str(randomAngle) + " degs.")
+                bboxCx = faceX + 0.5 * faceWidth
+                bboxCy = faceY + 0.5 * faceHeight
+                imageCenter = (bboxCx, bboxCy)
+                currentImage = rotateImage(currentImage, randomAngle, imageCenter)
+                croppedFace = currentImage[faceY:faceY + faceHeight, faceX:faceX + faceWidth]
+                if displayImages:
+                    showImage("Rotated", croppedFace)
+
+            # Show detected eyes on input:
+            imageOk = True
+            if displayImages or totalEyes == 0:
+                continueCondition = (manualFilter or (not bypassEyesTest and totalEyes == 0))
+                windowName = "Detected Eyes"
+
+                cv2.namedWindow(windowName, cv2.WINDOW_NORMAL)
+                cv2.imshow(windowName, eyesImage)
+
+                if continueCondition:
+                    print("[FaceNet Pre-processor] Press \"e\" to save image...")
+
+                key = cv2.waitKey(0)
+
+                # Inspect and manually discard samples:
+                if continueCondition:
+                    print("[FaceNet Pre-processor] Pressed: " + str(key))
+                    if key == ord("e"):  # Press "e" to save image
+                        print("[FaceNet Pre-processor] Saving sample to disk...")
+                        totalEyes = 2
+                    else:
+                        print("[FaceNet Pre-processor] Skipping sample...")
+                        imageOk = False
 
             # Save image to outputDirectory:
             # Do not save the image if no eyes have been detected
