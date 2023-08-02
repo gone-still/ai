@@ -1,8 +1,8 @@
 # File        :   samplesOrganizer.py
-# Version     :   0.0.1
+# Version     :   0.3.0
 # Description :   Train/Test sample organizer.
 #                 Moves sample files between source/target directories.
-# Date:       :   Jul 28, 2023
+# Date:       :   Aug 01, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -14,6 +14,9 @@ import math
 
 from imutils import paths
 from glob import glob
+
+from natsort import os_sorted
+import shutil
 
 
 # Defines a re-sizable image window:
@@ -30,6 +33,82 @@ def writeImage(imagePath, inputImage):
     print("Wrote Image: " + imagePath)
 
 
+# Natural sorts a list of strings:
+def naturalSort(inputList, prefix, imgExt=".png"):  # image_
+
+    # Attempting to naturally sort the list of strings:
+    tempList = []
+    filenameCounter = 0
+    prefixLen = len(prefix)
+    for name in inputList:
+        # Get the number from string:
+        tempString = name[prefixLen:]
+        tempString = tempString.split(".")
+        fileNumber = tempString[0].split("//")
+        fileNumber = fileNumber[-1]
+
+        # Store in temp list:
+        tempList.append(fileNumber)
+
+    # Sort the list (ascending)
+    tempList.sort()
+    # Prepare the (ordered) output list of strings:
+    outList = [prefix + str(n) + imgExt for n in tempList]
+
+    return outList
+
+
+def getSourceTarget(currentSamples, samplesFinal, currentDir, dirParams, dirCodesReverse):
+    sampleDiff = currentSamples - samplesFinal
+    # Dataset has more samples than needed:
+    if currentSamples > samplesFinal:
+        if currentDir == 0:
+            sourceDir = 0
+            targetDir = 1
+        else:
+            sourceDir = 1
+            targetDir = 0
+    # Dataset needs more samples than currently has:
+    else:
+        if currentDir == 0:
+            sourceDir = 1
+            targetDir = 0
+        else:
+            sourceDir = 0
+            targetDir = 1
+
+    sourceName = dirParams[sourceDir]["Name"]
+    targetName = dirParams[targetDir]["Name"]
+
+    print(sourceName + " -> Source")
+    print(targetName + " -> Target")
+
+    reverseDict = {targetDir: "Target", sourceDir: "Source"}
+
+    outDict = {"Source": [dirParams[sourceDir]["Path"], 0],
+               "Target": [dirParams[targetDir]["Path"], 0]}
+
+    # Check that source has enough samples to move to target:
+    samplesMoved = currentSamples - samplesFinal
+    if samplesMoved < 0:
+        raise TypeError("Source directory [" + datasetName + "] has: ", currentSamples,
+                        " but Target requested: ", samplesFinal)
+
+    if sampleDiff > 0:
+        sign = 1
+    else:
+        sign = -1
+
+    # This amount of samples are gonna be transferred over to target:
+    outDict[reverseDict[targetDir]][1] = sign * sampleDiff
+    # This amount of samples are retrieved from source:
+    outDict[reverseDict[sourceDir]][1] = -sign * sampleDiff
+
+    print(outDict)
+
+    return outDict
+
+
 # Set project paths:
 projectPath = "D://dataSets//faces//out//cropped//"
 
@@ -37,15 +116,24 @@ projectPath = "D://dataSets//faces//out//cropped//"
 trainPath = projectPath + "Train" + "//"
 testPath = projectPath + "Test" + "//"
 
+# Skip images from this class:
+excludedClasses = ["Uniques"]
+
+finalSamples = {"Train": 25, "Test": -1}
+
 # Set directory paths and amount of sample files,
 # -1 Sets remaining samples:
 # testSamples = totalSamples - trainSamples
-dirParams = {0: {"Name": "Train", "Path": trainPath, "Samples": 0, "Requested": 25},
-             1: {"Name": "Test", "Path": testPath, "Samples": 0, "Requested": -1}}
+dirParams = {0: {"Name": "Train", "Path": trainPath, "availableSamples": 0, "samplesMoved": 0,
+                 "finalSamples": finalSamples["Train"]},
+             1: {"Name": "Test", "Path": testPath, "availableSamples": 0, "samplesMoved": 0,
+                 "finalSamples": finalSamples["Test"]}}
 
 # Read classes (directory names) from
 # Train & Test directories:
 dirClasses = {"Train": {}, "Test": {}}
+dirCodes = {"Train": 0, "Test": 1}
+dirCodesReverse = {0: "Train", 1: "Test"}
 
 for currentDir in dirParams:
 
@@ -64,6 +152,22 @@ for currentDir in dirParams:
     # Trim root directory, leave only subdirectories names (these will be the classes):
     rootLength = len(currentPath)
 
+    # Filter the classes:
+    if excludedClasses:
+        filteredList = []
+        for currentDir in classesDirectories:
+            # Get dir/class name:
+            className = currentDir[rootLength - 1:-1]
+            # Check if dir/class must be filtered:
+            if className not in excludedClasses:
+                # Into the filtered list:
+                filteredList.append(currentDir)
+            else:
+                print("Filtered class/dir: " + className)
+
+        # Filtered list is now
+        classesDirectories = filteredList
+
     # Get the classes names (directories) for this dataset:
     classesNames = [dirName[rootLength - 1:-1] for dirName in classesDirectories]
 
@@ -76,78 +180,126 @@ for currentDir in dirParams:
             print("", i, currentClass, dirClasses[datasetName][currentClass])
 
     # Store total samples for this dataset:
-    currentDataset["Samples"] = len(dirClasses[datasetName])
+    currentDataset["availableSamples"] = len(dirClasses[datasetName])
     # Print some info:
-    print("[INFO] " + datasetName + " total samples: " + str(currentDataset["Samples"]))
+    print("[INFO] " + datasetName + " total samples: " + str(currentDataset["availableSamples"]))
 
-tempDict = {"Source": {}, "Target": {}}
+dirDictionary = {"Source": "", "Target": ""}
 maxSamples = 0
 
 # Set source & target directories,
 # Check amount of samples to be transferred/received
 # Source -> Sends samples
 # Target <- Receives samples
-# Source has more than dirParams[datasetName]["Samples"]
-# Target has less than dirParams[datasetName]["Samples"]
+# Source has more than dirParams[datasetName]["availableSamples"]
+# Target has less than dirParams[datasetName]["availableSamples"]
 setDirectories = False
+
 for currentDir in dirParams:
     # Get dataset/directory name:
     currentDataset = dirParams[currentDir]
     # Get name:
     datasetName = currentDataset["Name"]
     # Get sample count after/before transferring:
-    sampleCount = currentDataset["Requested"]
+    samplesFinal = currentDataset["finalSamples"]
     # Get total samples for this dataset:
-    totalSamples = currentDataset["Samples"]
+    currentSamples = currentDataset["availableSamples"]
+    # Get dataset path:
+    currentPath = currentDataset["Path"]
 
-    if sampleCount != -1:
-        print("Dataset: " + str(datasetName) + " is going to be source/target directory.")
-
-        # Dataset has more samples than needed:
-        if totalSamples > sampleCount:
-            if currentDir == 0:
-                sourceDir = 0
-                targetDir = 1
-            else:
-                sourceDir = 1
-                targetDir = 0
-        # Dataset needs more samples than currently has:
-        else:
-            if currentDir == 0:
-                sourceDir = 1
-                targetDir = 0
-            else:
-                sourceDir = 0
-                targetDir = 1
-
-        # Set the source (sender):
-        tempDict["Source"] = dirParams[sourceDir]
-        sourceName = dirParams[sourceDir]["Name"]
-        sourceSamples = dirParams[sourceDir]["Samples"]
-        sourceCount = dirParams[sourceDir]["Requested"]
-        # Check if the sender can send the amount of samples:
-        samplesDiff = sourceSamples - sampleCount
-        if samplesDiff < 0:
-            raise TypeError("Source directory [" + sourceName + "] has: ", sourceSamples, " but Target requested: ",
-                            sampleCount)
-        sampleTotal = sourceSamples - sampleCount
-        print("Dataset:", sourceName, "is Source:", sourceSamples, "(-) ->", sourceCount,
-              "[Final: " + str(sampleTotal) + "]")
-
-        # Set the target (receiver):
-        tempDict["Target"] = dirParams[targetDir]
-        targetName = dirParams[targetDir]["Name"]
-        targetSamples = dirParams[targetDir]["Samples"]
-        targetCount = dirParams[targetDir]["Requested"]
-        sampleTotal = targetSamples + sampleCount
-        print("Dataset:", targetName, "is Target:", targetSamples, "<- (+)", targetCount,
-              "[Final: " + str(sampleTotal) + "]")
-
+    if samplesFinal != -1:
         # Dirs have been set:
         setDirectories = True
 
-        break
 
 # Check that directories have been set before attempting file transfer:
 if not setDirectories:
     raise TypeError("Source/Target directories have not been set!")
+
+# Actually move the samples between directories:
+# Get classes por each dir:
+
+sourceClasses = dirClasses["Train"]
+targetClasses = dirClasses["Test"]
+
+for currentClass in sourceClasses:
+    # Check if this class exists in target directory:
+    if currentClass in targetClasses:
+
+        # Get path for this class:
+        sourcePath = sourceClasses[currentClass]
+        # targetPath = targetClasses[currentClass]
+        # print(sourcePath, targetPath)
+
+        # Images for this class:
+        # sourceImagePaths = list(paths.list_images(sourcePath))
+        # Natural-sort the list, os style:
+        # sourceImagePaths = os_sorted(sourceImagePaths)
+        totalSourceImages = len(list(paths.list_images(sourcePath)))
+
+        # Get codes:
+        sourceCode = dirCodes["Train"]
+        targetCode = dirCodes["Test"]
+
+        # Get the info:
+        samplesFinal = finalSamples["Train"]
+        infoDict = getSourceTarget(totalSourceImages, samplesFinal, sourceCode, dirParams, dirCodesReverse)
+
+        # Target and Source paths:
+        sourcePath = infoDict["Source"][0] + currentClass
+        targetPath = infoDict["Target"][0] + currentClass
+
+        # Amount of samples to transfer from source to target
+        samplesToMove = abs(infoDict["Source"][1])
+
+        # Images for this class:
+        sourceImagePaths = list(paths.list_images(sourcePath))
+        # Natural-sort the list, os style:
+        sourceImagePaths = os_sorted(sourceImagePaths)
+        totalSourceImages = len(sourceImagePaths)
+
+        # Image Counter:
+        movedSamples = 0
+
+        # Move the samples
+        print("Class: " + currentClass + " found in Source and Target directories. Moving: " + str(samplesToMove) +
+              " samples...")
+
+        # Move the samples from source -> target:
+        for s in range(samplesToMove):
+            # Get reverse sample index:
+            sampleIndex = (totalSourceImages - s) - 1
+            # Look for sample path on images list:
+            sourceSamplePath = sourceImagePaths[sampleIndex]
+
+            # Get filename:
+            fileName = sourceSamplePath.split("\\")[-1]
+
+            # Set target path:
+            targetSamplePath = targetPath + "//" + fileName
+
+            # # check if file exist in destination
+            if os.path.exists(targetSamplePath):
+                print("File: " + fileName + " exists on: " + targetSamplePath + ". Renaming new file...")
+                # Split name and extension
+                fileName = fileName.split(".")
+                # Adding the new name
+                newName = fileName[0] + '_new' + fileName[1]
+                # New Path:
+                targetSamplePath = targetSamplePath + newName
+
+            # Move file:
+            print("Moving: " + sourceSamplePath + " --> " + targetSamplePath)
+            shutil.move(sourceSamplePath, targetSamplePath)
+            movedSamples += 1
+
+        print("Class: " + currentClass + ", Samples Moved: " + str(movedSamples))
+
+        # Get new directory total files:
+        totalSourceImages = len(list(paths.list_images(sourcePath)))
+        totalTargetImages = len(list(paths.list_images(targetPath)))
+
+        print("Source images: " + str(totalSourceImages) + " Target images: " + str(totalTargetImages))
+
+    else:
+        print("Class: " + currentClass + " not found in Target directory, skipping...")
