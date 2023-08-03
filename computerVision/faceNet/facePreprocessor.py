@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.9.9
+# Version     :   0.10.3
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Jul 27, 2023
+# Date:       :   Aug 02, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -115,18 +115,25 @@ def rotateImage(inputImage, angle, imageCenter=None):
 projectPath = "D://dataSets//faces//"
 datasetPath = projectPath + "celebrities"
 outputPath = projectPath + "out"
-croppedPath = outputPath + "//cropped//"
+croppedPath = outputPath + "//cropped//Train//"
 
 # Cascade files:
-cascadeFiles = [("Default", "haarcascade_frontalface_default.xml"), ("Alt", "haarcascade_frontalface_alt.xml"),
-                ("Alt 2", "haarcascade_frontalface_alt2.xml"), ("Profile", "haarcascade_profileface.xml")]
+cascadeNames = ["Default", "Alt", "Alt 2", "Profile", "MTCNN"]
+cascadeFiles = [(cascadeNames[0], "haarcascade_frontalface_default.xml"),
+                (cascadeNames[1], "haarcascade_frontalface_alt.xml"),
+                (cascadeNames[2], "haarcascade_frontalface_alt2.xml"),
+                (cascadeNames[3], "haarcascade_profileface.xml")]
 
 # Cascade colors:
 faceDetectorColor = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (0, 255, 255), (192, 0, 192)]
 
 # For testing, process just one class:
 processAll = False
-targetClass = "Uniques"
+targetClass = "Geri Halliwell"
+
+# Stats dictionary:
+detectorsStats = {cascadeNames[0]: [0.0, 0.0], cascadeNames[1]: [0.0, 0.0], cascadeNames[2]: [0.0, 0.0],
+                  cascadeNames[3]: [0.0, 0.0], cascadeNames[4]: [0.0, 0.0]}
 
 # Set the random seed:
 randomSeed = 420
@@ -145,6 +152,10 @@ bypassEyesTest = False
 manualFilter = False
 rotateCrop = True
 
+# Show cropped face when no eyes are detected?
+displayFilter = True
+
+# Write cropped face to output dir?
 writeCropped = True
 
 # Display every processed image?
@@ -200,6 +211,15 @@ maxDetectors = totalFaceDetectors - 1
 cascadePath = projectPath + "cascades//" + "haarcascade_eye_3.xml"
 eyeDetector = cv2.CascadeClassifier(cascadePath)
 
+# Set image prefix:
+if targetClass != "Uniques":
+    imagePrefix = "sample-"
+else:
+    imagePrefix = "pair-"
+
+# Counter for all the images written to disk:
+totalImagesWritten = 0
+
 # Load images per class:
 for c, currentDirectory in enumerate(classesDirectories):
     # Images for this class:
@@ -232,6 +252,7 @@ for c, currentDirectory in enumerate(classesDirectories):
     sampleCount = 0
     faceCount = 0
     writtenImages = 0
+    totalDetections = 0
 
     # Unique pair counter:
     pairCount = 0.5
@@ -253,11 +274,11 @@ for c, currentDirectory in enumerate(classesDirectories):
             # Check extension before saving & deleting:
             if filenameString[1] != "png":
                 filenameString = filenameString[0] + ".png"
-                print("[FaceNet Pre-processor] Writing PNG image: "+filenameString)
+                print("[FaceNet Pre-processor] Writing PNG image: " + filenameString)
                 writeImage(filenameString, currentImage)
                 # Remove original image:
                 if deleteOriginal:
-                    print("[FaceNet Pre-processor] Removing File: "+currentPath)
+                    print("[FaceNet Pre-processor] Removing File: " + currentPath)
                     os.remove(currentPath)
 
         # BGR to gray:
@@ -275,6 +296,7 @@ for c, currentDirectory in enumerate(classesDirectories):
         searchDetector = True
         facesROIs = []
         totalFaces = 0
+        detectorName = ""
 
         # mtcnn flag:
         useMtcnn = False
@@ -371,8 +393,14 @@ for c, currentDirectory in enumerate(classesDirectories):
         subfaceCount = 0  # Counts ROIs per detections
 
         for currentROI in facesROIs:
-
+            # Increase face counter in this image:
             subfaceCount += 1
+
+            # Increase detections counter:
+            totalDetections += 1
+
+            # Store some stats. Face detection counter for this particular detector:
+            detectorsStats[detectorName][0] += 1
 
             # Get the face ROI:
             faceX = int(currentROI[0])
@@ -415,19 +443,23 @@ for c, currentDirectory in enumerate(classesDirectories):
             if rotateCrop:
                 randomAngle = random.randint(-10, 10)
                 print("[FaceNet Pre-processor] Rotating cropped face by: " + str(randomAngle) + " degs.")
+                # Compute Centroid:
                 bboxCx = faceX + 0.5 * faceWidth
                 bboxCy = faceY + 0.5 * faceHeight
                 imageCenter = (bboxCx, bboxCy)
-                currentImage = rotateImage(currentImage, randomAngle, imageCenter)
-                croppedFace = currentImage[faceY:faceY + faceHeight, faceX:faceX + faceWidth]
+                # Rotate the image:
+                rotatedImage = rotateImage(currentImage, randomAngle, imageCenter)
+                # Crop face:
+                croppedFace = rotatedImage[faceY:faceY + faceHeight, faceX:faceX + faceWidth]
+                # Show rotated face:
                 if displayImages:
                     showImage("Rotated", croppedFace)
 
             # Show detected eyes on input:
             imageOk = True
-            if displayImages or totalEyes == 0:
+            if displayFilter and (displayImages or totalEyes == 0):
                 continueCondition = (manualFilter or (not bypassEyesTest and totalEyes == 0))
-                windowName = "Detected Eyes"
+                windowName = "Eyes Filter"
 
                 cv2.namedWindow(windowName, cv2.WINDOW_NORMAL)
                 cv2.imshow(windowName, eyesImage)
@@ -450,7 +482,8 @@ for c, currentDirectory in enumerate(classesDirectories):
             # Save image to outputDirectory:
             # Do not save the image if no eyes have been detected
             # Option is overriden by the "eyes check" flag:
-            if totalEyes > 0 or bypassEyesTest:
+            eyesCondition = 2 >= totalEyes > 0
+            if eyesCondition or bypassEyesTest:
                 # Check manual filter:
                 if writeCropped and imageOk:
 
@@ -492,16 +525,50 @@ for c, currentDirectory in enumerate(classesDirectories):
                         lastChar = currentChar
 
                     # Write the image:
-                    imagePath = writePath + "pair-" + imageName + ".png"
+                    imagePath = writePath + imagePrefix + imageName + ".png"
                     # Save the last file path written:
                     lastSaved = imagePath
                     writeImage(imagePath, croppedFace)
                     writtenImages += 1
 
+                    # Store some stats. Actual images written counter for this particular detector:
+                    detectorsStats[detectorName][1] += 1
+
     # Get a couple of stats:
     detectionRate = (faceCount / totalImages) * 100
     writtenRate = (writtenImages / totalImages) * 100
 
+    # Add to total images written:
+    totalImagesWritten += writtenImages
+
     print("[FaceNet Pre-processor] Detected faces rate: " + str(faceCount) + "/" + str(
         totalImages) + " [" + f"{detectionRate:.4f}" + "%]" + " Written: " + str(writtenImages) + "/" + str(
         totalImages) + " [" + f"{writtenRate:.4f}" + "%]")
+
+    # Print stats per detector:
+    print("\nDetector Stats:")
+    for currentDetector in detectorsStats:
+        # Get the stats
+        statsList = detectorsStats[currentDetector]
+        facesDetected = statsList[0]
+        facesWritten = statsList[1]
+
+        # Compute the rates:
+        detectionRate = 0.0
+        writtenRate = 0.0
+        if totalDetections > 0:
+            detectionRate = (facesDetected / totalDetections) * 100
+
+        if writtenImages > 0:
+            writtenRate = (facesWritten / writtenImages) * 100
+
+        # Set the strings:
+        detectionPercent = f"{detectionRate:.2f}" + "%"
+        writtenPercent = f"{writtenRate:.2f}" + "%"
+
+        # Pretty print the detectors stats:
+        print('{0:<10}: {1:<15} {2:<15} {3:<15} {4:<15}'.format("[" + currentDetector + "]",
+                                                                "Detected: " + str(facesDetected),
+                                                                "Written: " + str(facesWritten),
+                                                                "D(%): " + detectionPercent,
+                                                                "W(%): " + writtenPercent))
