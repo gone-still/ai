@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.10.3
+# Version     :   0.11.1
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Aug 02, 2023
+# Date:       :   Aug 07, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -77,21 +77,55 @@ def detectEyes(mtcnnEyes, inputImage, imageSize, eyesDetector, displayImage=Fals
         yScale = imageSize[1] / originalHeight
 
     totalEyes = len(eyeROIs)
-    print("Eyes Found: " + str(totalEyes))
+    print(eyeROIs)
+    print("Unfiltered Eyes Found: " + str(totalEyes))
 
-    if displayImage:
+    # Post process eyes,
+    # Approximate each eye bounding box area:
+    eyeArea = []
+    maxArea = 0
+    for currentROI in eyeROIs:
 
-        for currentROI in eyeROIs:
+        # Get the eye ROI:
+        # eyeX = int(currentROI[0] * xScale)
+        # eyeY = int(currentROI[1] * yScale)
+        eyeWidth = int(currentROI[2] * xScale)
+        eyeHeight = int(currentROI[3] * yScale)
+
+        # Compute area:
+        currentEyeArea = eyeWidth * eyeHeight
+        eyeArea.append(currentEyeArea)
+
+        # Get max area:
+        if currentEyeArea > maxArea:
+            maxArea = currentEyeArea
+
+    # Set minimum area:
+    minEyeArea = 0.8 * maxArea
+    totalEyes = 0
+    # Filter eyes:
+    for i in range(len(eyeROIs)):
+
+        # Get area:
+        currentEyeArea = eyeArea[i]
+
+        # Filter:
+        eyeColor = (0, 0, 255)
+        if currentEyeArea > minEyeArea:
+            eyeColor = (0, 255, 0)
+            totalEyes += 1
+
+        if displayImage:
+            # Get current ROI:
+            eyeROI = eyeROIs[i]
             # Get the face ROI:
-            faceX = int(currentROI[0] * xScale)
-            faceY = int(currentROI[1] * yScale)
-            faceWidth = int(currentROI[2] * xScale)
-            faceHeight = int(currentROI[3] * yScale)
-
+            eyeX = int(eyeROI[0] * xScale)
+            eyeY = int(eyeROI[1] * yScale)
+            eyeWidth = int(eyeROI[2] * xScale)
+            eyeHeight = int(eyeROI[3] * yScale)
             # Draw the face ROI:
-            # color = faceDetectorColor[detectorIndex]
-            cv2.rectangle(eyesImage, (faceX, faceY), ((faceX + faceWidth), (faceY + faceHeight)), eyesColor, 2)
-            # showImage("Eyes", eyesImage)
+            cv2.rectangle(eyesImage, (eyeX, eyeY), ((eyeX + eyeWidth), (eyeY + eyeHeight)), eyeColor, 2)
+            showImage("Eyes", eyesImage)
 
     return totalEyes, eyesImage
 
@@ -118,22 +152,37 @@ outputPath = projectPath + "out"
 croppedPath = outputPath + "//cropped//Train//"
 
 # Cascade files:
-cascadeNames = ["Default", "Alt", "Alt 2", "Profile", "MTCNN"]
-cascadeFiles = [(cascadeNames[0], "haarcascade_frontalface_default.xml"),
-                (cascadeNames[1], "haarcascade_frontalface_alt.xml"),
-                (cascadeNames[2], "haarcascade_frontalface_alt2.xml"),
-                (cascadeNames[3], "haarcascade_profileface.xml")]
+cascadeNames = ["Default 1", "Default 2", "Alt", "Alt 2", "Profile", "MTCNN"]
+
+cascadeDict = {
+    cascadeNames[0]: {"File": "haarcascade_frontalface_default.xml", "Color": (0, 255, 0)},
+    cascadeNames[1]: {"File": "haarcascade_frontalface_default.xml", "Color": (0, 130, 0)},
+    cascadeNames[2]: {"File": "haarcascade_frontalface_alt.xml", "Color": (255, 0, 0)},
+    cascadeNames[3]: {"File": "haarcascade_frontalface_alt2.xml", "Color": (0, 0, 255)},
+    cascadeNames[4]: {"File": "haarcascade_profileface.xml", "Color": (0, 255, 255)}
+}
+
+cascadeParams = {
+    cascadeNames[0]: {"scaleFactor": 1.05, "minNeigh": 50, "minSize": 70, "maxSize": -1},
+    cascadeNames[1]: {"scaleFactor": 1.01, "minNeigh": 150, "minSize": 90, "maxSize": -1},
+    cascadeNames[2]: {"scaleFactor": 1.01, "minNeigh": 80, "minSize": 70, "maxSize": -1},
+    cascadeNames[3]: {"scaleFactor": 1.01, "minNeigh": 90, "minSize": 70, "maxSize": -1},
+    cascadeNames[4]: {"scaleFactor": 1.01, "minNeigh": 10, "minSize": 300, "maxSize": 500}
+}
 
 # Cascade colors:
-faceDetectorColor = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (0, 255, 255), (192, 0, 192)]
+# faceDetectorColor = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (0, 255, 255), (192, 0, 192)]
 
 # For testing, process just one class:
 processAll = False
-targetClass = "Geri Halliwell"
+targetClass = "Lucia Maya"
 
 # Stats dictionary:
-detectorsStats = {cascadeNames[0]: [0.0, 0.0], cascadeNames[1]: [0.0, 0.0], cascadeNames[2]: [0.0, 0.0],
-                  cascadeNames[3]: [0.0, 0.0], cascadeNames[4]: [0.0, 0.0]}
+detectorsStats = {}
+# Set the stats dictionary
+for i in range(len(cascadeNames)):
+    currentName = cascadeNames[i]
+    detectorsStats[currentName] = [0.0, 0.0]
 
 # Set the random seed:
 randomSeed = 420
@@ -196,10 +245,12 @@ else:
 
 # Load the cascade file(s):
 faceDetectors = []
-for cascadeFile in cascadeFiles:
+for cascadeName in cascadeDict:
+    # Get the file
+    cascadeFile = cascadeDict[cascadeName]["File"]
     # Load cascade:
-    cascadePath = projectPath + "cascades//" + cascadeFile[1]
-    faceDetectors.append(cv2.CascadeClassifier(cascadePath))
+    cascadePath = projectPath + "cascades//" + cascadeFile
+    faceDetectors.append([cv2.CascadeClassifier(cascadePath), cascadeName])
 
 totalFaceDetectors = len(faceDetectors)
 print("[FaceNet Pre-processor] Face detectors loaded: " + str(totalFaceDetectors))
@@ -307,15 +358,32 @@ for c, currentDirectory in enumerate(classesDirectories):
 
             if not useMtcnn:
 
-                # Set face detector:
-                faceDetector = faceDetectors[detectorIndex]
+                # Set face detector & name:
+                faceDetector = faceDetectors[detectorIndex][0]
+                detectorName = faceDetectors[detectorIndex][1]
+
                 # Attempt to detect a face in the image:
-                detectorName = cascadeFiles[detectorIndex][0]
+                print("[FaceNet Pre-processor] Using detector: " + detectorName)
+
+                # Get params
+                currentCascadeParams = cascadeParams[detectorName]
+
+                # Set params:
+                scaleFactor = currentCascadeParams["scaleFactor"]
+                minNeighbors = currentCascadeParams["minNeigh"]
+                minSize = (currentCascadeParams["minSize"], currentCascadeParams["minSize"])
+
+                # Set max Size:
+                maxSize = currentCascadeParams["maxSize"]
+                if maxSize == -1:
+                    maxSize = None
+                else:
+                    maxSize = (maxSize, maxSize)
 
                 # Run face detector:
-                facesROIs = faceDetector.detectMultiScale(grayImage, scaleFactor=1.05, minNeighbors=32,
-                                                          minSize=(50, 50),
-                                                          # maxSize=(150, 150),
+                facesROIs = faceDetector.detectMultiScale(grayImage, scaleFactor=scaleFactor, minNeighbors=minNeighbors,
+                                                          minSize=minSize,
+                                                          maxSize=maxSize,
                                                           flags=cv2.CASCADE_SCALE_IMAGE)
 
             else:
@@ -381,7 +449,7 @@ for c, currentDirectory in enumerate(classesDirectories):
                 if detectorIndex < maxDetectors:
                     detectorIndex += 1
                 else:
-                    print("[FaceNet Pre-processor] Switching to mtcnn face detector...")
+                    print("[FaceNet Pre-processor] Switching to MTCNN face detector...")
                     useMtcnn = True
 
         # Break loop if no detections
@@ -409,7 +477,10 @@ for c, currentDirectory in enumerate(classesDirectories):
             faceHeight = int(currentROI[3])
 
             # Draw the face ROI:
-            color = faceDetectorColor[detectorIndex]
+            if detectorName != "MTCNN":
+                color = cascadeDict[detectorName]["Color"]
+            else:
+                color = (192, 0, 192)
             cv2.rectangle(currentImageCopy, (faceX, faceY), ((faceX + faceWidth), (faceY + faceHeight)), color, 2)
 
             # Crop the face:
@@ -482,7 +553,11 @@ for c, currentDirectory in enumerate(classesDirectories):
             # Save image to outputDirectory:
             # Do not save the image if no eyes have been detected
             # Option is overriden by the "eyes check" flag:
-            eyesCondition = 2 >= totalEyes > 0
+            if detectorName != "MTCNN":
+                maxEyes = 4
+            else:
+                maxEyes = 2
+            eyesCondition = maxEyes >= totalEyes > 0
             if eyesCondition or bypassEyesTest:
                 # Check manual filter:
                 if writeCropped and imageOk:
@@ -496,8 +571,8 @@ for c, currentDirectory in enumerate(classesDirectories):
                     else:
 
                         # Check that this is truly a pair in the A-B sequence:
-                        print("Pair:", currentChar, lastChar)
-                        print("Last Saved:", lastSaved)
+                        print("[FaceNet Pre-processor] Pair:", currentChar, lastChar)
+                        print("[FaceNet Pre-processor] Last Saved:", lastSaved)
                         if currentChar == lastChar:
                             # Missed one image from this pair...
                             print("[FaceNet Pre-processor] Skipped a pair image...")
@@ -567,7 +642,7 @@ for c, currentDirectory in enumerate(classesDirectories):
         writtenPercent = f"{writtenRate:.2f}" + "%"
 
         # Pretty print the detectors stats:
-        print('{0:<10}: {1:<15} {2:<15} {3:<15} {4:<15}'.format("[" + currentDetector + "]",
+        print('{0:<20}: {1:<15} {2:<15} {3:<15} {4:<15}'.format("[" + currentDetector + "]",
                                                                 "Detected: " + str(facesDetected),
                                                                 "Written: " + str(facesWritten),
                                                                 "D(%): " + detectionPercent,
