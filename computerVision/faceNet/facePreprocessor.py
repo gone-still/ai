@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.11.1
+# Version     :   0.12.0
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Aug 07, 2023
+# Date:       :   Aug 09, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -175,7 +175,7 @@ cascadeParams = {
 
 # For testing, process just one class:
 processAll = False
-targetClass = "Lucia Maya"
+targetClasses = ["Alexandra Daddario", "Michael Jackson"]
 
 # Stats dictionary:
 detectorsStats = {}
@@ -214,6 +214,7 @@ displayImages = False
 # (ignore if the image is already png)
 savePng = True
 deleteOriginal = True
+renameOriginalPair = False
 
 # Load each image path of the dataset:
 print("[FaceNet Pre-processor] Loading images...")
@@ -234,14 +235,14 @@ if processAll:
     rootLength = len(datasetPath)
     classesImages = [dirName[rootLength + 1:-1] for dirName in classesDirectories]
 
-    # Get total classes:
-    totalClasses = len(classesImages)
-
 else:
 
     # Process this specific class:
-    classesDirectories = [datasetPath + "//" + targetClass + "//"]
-    classesImages = [targetClass]
+    classesDirectories = [datasetPath + "//" + targetClass + "//" for targetClass in targetClasses]
+    classesImages = targetClasses
+
+# Get total classes:
+totalClasses = len(classesImages)
 
 # Load the cascade file(s):
 faceDetectors = []
@@ -262,25 +263,34 @@ maxDetectors = totalFaceDetectors - 1
 cascadePath = projectPath + "cascades//" + "haarcascade_eye_3.xml"
 eyeDetector = cv2.CascadeClassifier(cascadePath)
 
-# Set image prefix:
-if targetClass != "Uniques":
-    imagePrefix = "sample-"
-else:
-    imagePrefix = "pair-"
-
 # Counter for all the images written to disk:
 totalImagesWritten = 0
 
+# Global counters (totalDetections, writtenImages)
+processCounters = {"totalDetections": 0.0, "writtenImages": 0.0}
+
 # Load images per class:
 for c, currentDirectory in enumerate(classesDirectories):
+
+    # Get class:
+    currentClass = classesImages[c]
+    print("[FaceNet Pre-processor] Processing Class: " + currentClass +
+          " [" + str(c + 1) + "/" + str(totalClasses) + "]")
+    print("[FaceNet Pre-processor] Class path: " + currentDirectory)
+
     # Images for this class:
     imagePaths = list(paths.list_images(currentDirectory))
     totalImages = len(imagePaths)
 
     # Randomize images?
     # Do not randomize for unique pairs:
-    if targetClass != "Uniques":
+    if currentClass != "Uniques":
         random.shuffle(imagePaths)
+        # Set image prefix:
+        imagePrefix = "sample-"
+    else:
+        # Set image prefix:
+        imagePrefix = "pair-"
 
     currentClass = classesImages[c]
     print("[FaceNet Pre-processor] Class: " + currentClass + " Samples: " + str(totalImages))
@@ -312,6 +322,12 @@ for c, currentDirectory in enumerate(classesDirectories):
     lastSaved = "-"
     lastChar = "-"
 
+    # Successful unique pair written:
+    validPair = False
+    stringBuffer = ""
+    originalPaths = {"A": {"old": "", "new": ""},
+                     "B": {"old": "", "new": ""}}
+
     for currentPath in imagePaths:
 
         # Load the image:
@@ -334,7 +350,6 @@ for c, currentDirectory in enumerate(classesDirectories):
 
         # BGR to gray:
         grayImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2GRAY)
-
         sampleCount += 1
 
         # Show image:
@@ -504,11 +519,13 @@ for c, currentDirectory in enumerate(classesDirectories):
                 goodVariance = varianceDetector(croppedFace, 100)
 
             # Check image type (A/B) for uniques pairs:
-            if targetClass == "Uniques":
+            if currentClass == "Uniques":
                 if sampleCount % 2 == 1:
                     currentChar = "A"
                 else:
                     currentChar = "B"
+                # Save complete progression string:
+                stringBuffer = stringBuffer + currentChar
 
             # Rotate output image?:
             if rotateCrop:
@@ -563,7 +580,7 @@ for c, currentDirectory in enumerate(classesDirectories):
                 if writeCropped and imageOk:
 
                     # Check class type:
-                    if targetClass != "Uniques":
+                    if currentClass != "Uniques":
 
                         # Not unique pair, straightforward file name:
                         imageName = str(faceCount) + "-" + str(subfaceCount)
@@ -584,12 +601,14 @@ for c, currentDirectory in enumerate(classesDirectories):
                                 print("[FaceNet Pre-processor] Deleting last saved...: " + lastSaved)
                                 os.remove(lastSaved)
                                 pairCount = pairCount - 0.5
+                                stringBuffer = ""
                                 # continue
 
                             else:
                                 # Buffer the char used:
                                 lastChar = "-"
                                 print("[FaceNet Pre-processor] Skipping image...")
+                                stringBuffer = ""
                                 # Abort:
                                 continue
 
@@ -599,12 +618,44 @@ for c, currentDirectory in enumerate(classesDirectories):
                         # Buffer the char used:
                         lastChar = currentChar
 
+                        # Save the old and new path:
+                        originalPaths[currentChar]["old"] = currentPath
+
+                        # Construct new path, get original directory:
+                        originalPath = currentPath.split("//")
+                        buffer = ""
+
+                        for i in range(len(originalPath) - 1):
+                            subString = originalPath[i]
+                            buffer = buffer + subString + "//"
+
+                        # Set the nre path:
+                        originalPaths[currentChar]["new"] = buffer + imagePrefix + imageName + ".png"
+
+                        # Check if valid pair:
+                        if stringBuffer == "AB":
+                            validPair = True
+                            stringBuffer = ""
+                            # print("[Got valid pair.]")
+
                     # Write the image:
                     imagePath = writePath + imagePrefix + imageName + ".png"
                     # Save the last file path written:
                     lastSaved = imagePath
                     writeImage(imagePath, croppedFace)
                     writtenImages += 1
+
+                    if currentClass == "Uniques" and validPair:
+
+                        validPair = False
+                        print("[Got valid pair]", originalPaths["A"], originalPaths["B"])
+
+                        if renameOriginalPair:
+                            for i, key in enumerate(originalPaths):
+                                oldPath = originalPaths[key]["old"]
+                                newPath = originalPaths[key]["new"]
+                                print("Rename: " + str(i), oldPath, "->", newPath)
+                                os.rename(oldPath, newPath)
 
                     # Store some stats. Actual images written counter for this particular detector:
                     detectorsStats[detectorName][1] += 1
@@ -616,34 +667,38 @@ for c, currentDirectory in enumerate(classesDirectories):
     # Add to total images written:
     totalImagesWritten += writtenImages
 
-    print("[FaceNet Pre-processor] Detected faces rate: " + str(faceCount) + "/" + str(
+    # Store process counters:
+    processCounters["totalDetections"] += totalDetections
+    processCounters["writtenImages"] += writtenImages
+
+    print(">> [FaceNet Pre-processor] Detected faces rate: " + str(faceCount) + "/" + str(
         totalImages) + " [" + f"{detectionRate:.4f}" + "%]" + " Written: " + str(writtenImages) + "/" + str(
         totalImages) + " [" + f"{writtenRate:.4f}" + "%]")
 
-    # Print stats per detector:
-    print("\nDetector Stats:")
-    for currentDetector in detectorsStats:
-        # Get the stats
-        statsList = detectorsStats[currentDetector]
-        facesDetected = statsList[0]
-        facesWritten = statsList[1]
+# Print stats per detector:
+print("\nDetector Stats:")
+for currentDetector in detectorsStats:
+    # Get the stats
+    statsList = detectorsStats[currentDetector]
+    facesDetected = statsList[0]
+    facesWritten = statsList[1]
 
-        # Compute the rates:
-        detectionRate = 0.0
-        writtenRate = 0.0
-        if totalDetections > 0:
-            detectionRate = (facesDetected / totalDetections) * 100
+    # Compute the rates:
+    detectionRate = 0.0
+    writtenRate = 0.0
+    if processCounters["totalDetections"] > 0:
+        detectionRate = (facesDetected / processCounters["totalDetections"]) * 100
 
-        if writtenImages > 0:
-            writtenRate = (facesWritten / writtenImages) * 100
+    if processCounters["writtenImages"] > 0:
+        writtenRate = (facesWritten / processCounters["writtenImages"]) * 100
 
-        # Set the strings:
-        detectionPercent = f"{detectionRate:.2f}" + "%"
-        writtenPercent = f"{writtenRate:.2f}" + "%"
+    # Set the strings:
+    detectionPercent = f"{detectionRate:.2f}" + "%"
+    writtenPercent = f"{writtenRate:.2f}" + "%"
 
-        # Pretty print the detectors stats:
-        print('{0:<20}: {1:<15} {2:<15} {3:<15} {4:<15}'.format("[" + currentDetector + "]",
-                                                                "Detected: " + str(facesDetected),
-                                                                "Written: " + str(facesWritten),
-                                                                "D(%): " + detectionPercent,
-                                                                "W(%): " + writtenPercent))
+    # Pretty print the detectors stats:
+    print('{0:<20}: {1:<15} {2:<15} {3:<15} {4:<15}'.format("[" + currentDetector + "]",
+                                                            "Detected: " + str(facesDetected),
+                                                            "Written: " + str(facesWritten),
+                                                            "D(%): " + detectionPercent,
+                                                            "W(%): " + writtenPercent))
