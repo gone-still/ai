@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.9.5
+# Version     :   0.9.7
 # Description :   faceNet training script
 
-# Date:       :   Jul 26, 2023
+# Date:       :   Aug 09, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -47,6 +47,18 @@ def showImages(windowName, imageList):
     cv2.namedWindow(windowName, cv2.WINDOW_NORMAL)
     cv2.imshow(windowName, outImage)
     cv2.waitKey(0)
+
+
+# Rotates an image by a given angle (degs):
+def rotateImage(inputImage, angle):
+    # Grab the dimensions of the image and calculate the center of the
+    # image
+    (h, w) = inputImage.shape[:2]
+    (cX, cY) = (w // 2, h // 2)
+    # rotate our image by 45 degrees around the center of the image
+    M = cv2.getRotationMatrix2D((cX, cY), angle, 1.0)
+    rotatedImage = cv2.warpAffine(inputImage, M, (w, h))
+    return rotatedImage
 
 
 # Shuffles a batch of lists (images) and a numpy array (labels) that
@@ -172,7 +184,17 @@ outputPath = projectPath + "out//"
 datasetPath = outputPath + "cropped//train"
 
 # Set the global random seed for all pseudo-random processes:
-randomSeed = 420
+randomSeed = 42069
+
+# Include unique pairs?
+includeUniques = True
+# Display unique pairs?
+displayUniques = False
+# How many unique pairs must be included:
+totalUniques = 1552
+
+# Skip images from this class:
+excludedClasses = ["Uniques"]
 
 # Debug:
 displayImages = False
@@ -205,10 +227,12 @@ resizeInterpolation = cv2.INTER_AREA
 embeddingSize = configParameters["embeddingSize"]
 # Use this amount of images per class... -1 uses the whole available images per class,
 # should be <= than the class with the least number of samples:
-imagesPerClass = 55
+imagesPerClass = 30
 
 # Vertically random-flip samples:
 randomFlip = True
+# Apply a small rotation:
+applyRotation = False
 # Apply high-pass:
 applyHighpass = configParameters["useHighPass"]
 # Randomly use grayscale:
@@ -226,7 +250,7 @@ netParameters = configParameters["netParameters"]
 
 # Create this amount of positive pairs...
 # Extra pairs (not guaranteed to be unique):
-extraPairs = 1485
+extraPairs = 0
 # Compute the max number of unique pairs:
 pairsPerClass = (0.5 * (imagesPerClass ** 2.0) - (0.5 * imagesPerClass) - 7e-12) + extraPairs
 pairsPerClass = math.ceil(pairsPerClass)
@@ -259,6 +283,24 @@ classesDirectories.sort()
 
 # Trim root directory, leave only subdirectories names (these will be the classes):
 rootLength = len(datasetPath)
+
+# Filter the classes:
+if excludedClasses:
+    filteredList = []
+    for currentDir in classesDirectories:
+        # Get dir/class name:
+        className = currentDir[rootLength + 1:-1]
+        # Check if dir/class must be filtered:
+        if className not in excludedClasses:
+            # Into the filtered list:
+            filteredList.append(currentDir)
+        else:
+            print("[INFO - FaceNet Training] -- Filtered class/dir: " + className)
+
+    # Filtered list is now
+    classesDirectories = filteredList
+
+# Load the classes:
 classesImages = [dirName[rootLength + 1:-1] for dirName in classesDirectories]
 
 # Create classes dictionary:
@@ -307,6 +349,11 @@ for c, currentDirectory in enumerate(classesDirectories):
 
         # Load the image:
         currentImage = cv2.imread(currentPath)
+
+        # Apply small rotation?
+        if applyRotation:
+            rotationAngle = random.randint(-10, 10)
+            currentImage = rotateImage(currentImage, rotationAngle)
 
         # Apply vertical Flip?
         if randomFlip:
@@ -371,6 +418,7 @@ print("[INFO - FaceNet Training] -- Loaded: [" + str(imagesPerClass) + "] images
 # Stores: (Class A - Sample 1, Class A - Sample 2, Class Code)
 print("[INFO - FaceNet Training] -- Generating: ", pairsPerClass, " pairs per class...")
 
+# Positive pairs are stored here:
 positivePairs = []
 
 for currentClass in facesDataset:
@@ -390,11 +438,11 @@ for currentClass in facesDataset:
     for i in range(pairsPerClass):
 
         createPair = True
+        randomSamples = [0, 0]
 
         while createPair:
 
             choices = list(range(0, classSamples))
-            randomSamples = [0, 0]
 
             # Randomly choose a first sample:
             randomSamples[0] = random.choice(choices)
@@ -446,8 +494,162 @@ for currentClass in facesDataset:
     print("[" + currentClass + "]" + " Pairs Created: " + str(processedPairs) + ", Class: " + currentClass,
           "(" + str(classesDictionary[currentClass]) + ")", " Total: " + str(totalPairs))
 
+# Process "Uniques":
+uniquePairs = []
+if includeUniques:
+
+    # Max class code:
+    classCode = len(classesDictionary)
+    # Create new class coded in the classes dictionary:
+    classesDictionary["Uniques"] = classCode
+
+    print("Processing Unique pairs...")
+
+    # Set the Uniques directory:
+    uniquesDirectory = datasetPath + "//Uniques//"
+    # Images for this class:
+    imagePaths = list(paths.list_images(uniquesDirectory))
+    # Total unique pairs:
+    totalImages = len(imagePaths)
+
+    # Store sample pair here:
+    tempList = []
+
+    # Get the filename name mnemonic:
+    tempString = imagePaths[0].split(".")
+    tempString = tempString[0].split("//")
+    tempString = tempString[-1]
+    filename = tempString.split("-")
+
+    uniqueCount = 0
+
+    # Create the unique pairs:
+    createUniques = True
+    i = 0
+    while createUniques:
+
+        # for i, currentPath in enumerate(imagePaths):
+
+        # Set the image name:
+        if i % 2 == 0:
+            lastChar = "A"
+        else:
+            lastChar = "B"
+
+        # Create complete path:
+        # imageName = filename[0] + "-" + str(i + 1) + "-" + lastChar
+        currentPath = imagePaths[i]
+        print("Current Unique image: ", currentPath)
+
+        # Load the image:
+        currentImage = cv2.imread(currentPath)
+
+        # Apply small rotation?
+        # if applyRotation:
+        #     rotationAngle = random.randint(-10, 10)
+        #     currentImage = rotateImage(currentImage, rotationAngle)
+
+        # Apply vertical Flip?
+        if randomFlip:
+            flipInt = random.randint(0, 1)
+            if flipInt == 1:
+                # Flip along the y axis:
+                currentImage = cv2.flip(currentImage, 1)
+
+        # Should it be converted to grayscale (one channel):
+        targetDepth = imageDims[-1]
+
+        if targetDepth != 3:
+            # To Gray:
+            currentImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2GRAY)
+
+        # Pre-process the image for FaceNet input:
+        newSize = imageDims[0:2]
+
+        # Resize:
+        currentImage = cv2.resize(currentImage, newSize, resizeInterpolation)
+
+        # Apply high-pass?
+        if applyHighpass:
+            kernel = np.array([[0, -1, 0],
+                               [-1, 5, -1],
+                               [0, -1, 0]])
+            currentImage = cv2.filter2D(currentImage, -1, kernel)
+
+        # Scale:
+        currentImage = currentImage.astype("float") / 255.0
+
+        if targetDepth == 1:
+            # Add "color" dimension:
+            currentImage = np.expand_dims(currentImage, axis=-1)
+
+        # Show the input image:
+        if displayImages:
+            showImage("[Unique Pair] Input image [Pre-processed]", currentImage)
+
+        # Into the temp list:
+        if lastChar == "A":
+            tempList.append(currentImage)
+        else:
+            tempList.append(currentImage)
+            # Finally, store class code:
+            tempList.append(classCode)
+            classCode += 1
+
+            # Into the positive pairs list:
+            uniquePairs.append(tempList)
+            uniqueCount += 1
+
+            # Clear list:
+            tempList = []
+
+            if displayUniques:
+
+                # Horizontally concatenate images:
+                imageList = [uniquePairs[-1][0], uniquePairs[-1][1]]
+                stackedImage = cv2.hconcat(imageList)
+                imageDimensions = len(stackedImage.shape)
+
+                if imageDimensions < 3:
+                    (height, width) = stackedImage.shape
+                    depth = 1
+                else:
+                    (height, width, depth) = stackedImage.shape
+
+                # Get image type:
+                imageType = stackedImage.dtype
+
+                # Check type and convert to uint8:
+                if imageType != np.dtype("uint8"):
+                    stackedImage = stackedImage * 255.0
+                    stackedImage = stackedImage.clip(0, 255).astype(np.uint8)
+
+                    # Convert channels:
+                    if depth != 3:
+                        stackedImage = cv2.cvtColor(stackedImage, cv2.COLOR_GRAY2BGR)
+
+                # Show image:
+                showImage("Unique Pair", stackedImage)
+
+        # Check loop control variables:
+        i = i + 1
+        if i >= totalUniques:
+            createUniques = False
+
+    # Shuffle the list of unique pairs:
+    random.shuffle(uniquePairs)
+
+    # Done creating positive pairs for this class:
+    totalPairs = len(uniquePairs)
+    print("[Unique]" + " Pairs Created: " + str(uniqueCount), "(" + str(uniqueCount * 2) + " Images)",
+          "(Class Code: " + str(classesDictionary["Uniques"]) + ")", " Total: " + str(totalPairs))
+
+    # Include unique pairs in positive pairs list:
+    positivePairs = positivePairs + uniquePairs
+
 # Shuffle the list of positive pairs:
-random.shuffle(positivePairs)
+for i in range(10):
+    random.shuffle(positivePairs)
 
 # Split the pairs for train and validation,
 # Training:
@@ -506,6 +708,8 @@ for currentDataset in ["Train", "Test"]:
         listItem = currentList[i]  # Pair 1, Pair 2, Class
         # Get images:
         currentSamples = (listItem[0], listItem[1])
+        # Get class:
+        sampleClass = listItem[2]
         # Check images (if proper data type):
         if displayImages:
             showImage("[Positive] Sample 1", currentSamples[0])
@@ -587,7 +791,6 @@ for currentDataset in ["Train", "Test"]:
     random.shuffle(pairsDataset[currentDataset])
     if currentDataset == "Test":
         for i in range(10):
-            print("x ", i)
             random.shuffle(pairsDataset[currentDataset])
     # print([c[-1] for c in pairsDataset[currentDataset][0:5]])
 
@@ -601,9 +804,9 @@ if displaySampleBatch:
     batchesNames = ["Train", "Validation"]
     randomDistribution = False
 
-    trainBatch = next(generateBatch(pairsList=pairsDataset["Train"], totalSteps=1, batchSize=10, displayImages=False))
+    trainBatch = next(generateBatch(pairsList=pairsDataset["Train"], totalSteps=1, batchSize=50, displayImages=False))
     validationBatch = next(
-        generateBatch(pairsList=pairsDataset["Test"], totalSteps=1, batchSize=10, displayImages=False))
+        generateBatch(pairsList=pairsDataset["Test"], totalSteps=1, batchSize=50, displayImages=False))
 
     batchDataset = [trainBatch, validationBatch]
 
@@ -717,6 +920,7 @@ else:
     # Train the net:
     trainingEpochs = netParameters[similarityMetric]["epochs"]
     classWeights = configParameters["classWeights"]
+
 
     # LR reducer:
     reduceLr = ReduceLROnPlateau(monitor="val_loss", factor=0.1, patience=3, mode="auto", min_delta=0.001, cooldown=0,
