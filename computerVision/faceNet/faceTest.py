@@ -1,8 +1,8 @@
 # File        :   faceTest.py
-# Version     :   0.11.0
+# Version     :   0.11.1
 # Description :   faceNet test script
 
-# Date:       :   Jul 17, 2023
+# Date:       :   Aug 11, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -63,6 +63,18 @@ def naturalSort(inputList, prefix, imgExt=".png"):  # image_
     return outList
 
 
+# Rotates an image by a given angle (degs):
+def rotateImage(inputImage, angle):
+    # Grab the dimensions of the image and calculate the center of the
+    # image
+    (h, w) = inputImage.shape[:2]
+    (cX, cY) = (w // 2, h // 2)
+    # rotate our image by 45 degrees around the center of the image
+    M = cv2.getRotationMatrix2D((cX, cY), angle, 1.0)
+    rotatedImage = cv2.warpAffine(inputImage, M, (w, h))
+    return rotatedImage
+
+
 # Set project paths:
 projectPath = "D://dataSets//faces//"
 outputPath = projectPath + "out//"
@@ -78,7 +90,7 @@ similarityMetric = configParameters["similarityMetric"]
 weightsFilename = "facenetWeights" + "-" + configParameters["weightsFilename"] + ".h5"
 
 # Write folder:
-resultsPath = outputPath + "results//cosine10//"
+resultsPath = outputPath + "results//cosine18//"
 
 # Total positive pairs & negative pairs to be tested:
 # startImage = 55  # Start at this image for test
@@ -86,14 +98,17 @@ maxImages = 30  # Use all remaining images for test (-1 uses all the images)
 datasetSize = 350
 positivePortion = 0.7
 
-randomSeed = 420
+randomSeed = 42069
 pairsPerClass = 200
 
 displayImages = False
 displayUniques = False
 showClassified = False
-includeUniques = False
+includeUniques = True
 writeAll = False
+randomFlip = True
+applyRotation = False
+
 
 # Skip images from this class:
 excludedClasses = ["Uniques"]
@@ -230,6 +245,11 @@ for c, currentDirectory in enumerate(classesDirectories):
         # Load the image:
         currentImage = cv2.imread(currentPath)
 
+        # Apply small rotation:
+        if applyRotation:
+            rotationAngle = random.randint(-10, 10)
+            currentImage = rotateImage(currentImage, rotationAngle)
+
         # Should it be converted to grayscale (one channel):
         targetDepth = imageDims[-1]
 
@@ -249,6 +269,13 @@ for c, currentDirectory in enumerate(classesDirectories):
                                [-1, 5, -1],
                                [0, -1, 0]])
             currentImage = cv2.filter2D(currentImage, -1, kernel)
+
+        # Apply vertical Flip?
+        if randomFlip:
+            flipInt = random.randint(0, 1)
+            if flipInt == 1:
+                # Flip along the y axis:
+                currentImage = cv2.flip(currentImage, 1)
 
         # Scale:
         currentImage = currentImage.astype("float") / 255.0
@@ -374,8 +401,14 @@ if includeUniques:
         # imageName = filename[0] + "-" + str(i + 1) + "-" + lastChar
         # currentPath = uniquesDirectory + imageName + ".png"
         print("Current Unique image: ", currentPath)
+
         # Load the image:
         currentImage = cv2.imread(currentPath)
+
+        # Apply small rotation:
+        if applyRotation:
+            rotationAngle = random.randint(-10, 10)
+            currentImage = rotateImage(currentImage, rotationAngle)
 
         # Should it be converted to grayscale (one channel):
         targetDepth = imageDims[-1]
@@ -396,6 +429,13 @@ if includeUniques:
                                [-1, 5, -1],
                                [0, -1, 0]])
             currentImage = cv2.filter2D(currentImage, -1, kernel)
+
+        # Apply vertical Flip?
+        if randomFlip:
+            flipInt = random.randint(0, 1)
+            if flipInt == 1:
+                # Flip along the y axis:
+                currentImage = cv2.flip(currentImage, 1)
 
         # Scale:
         currentImage = currentImage.astype("float") / 255.0
@@ -760,6 +800,7 @@ dateNow = time.strftime("%Y-%m-%d %H:%M")
 print(" ---------------------------------------------------------- ")
 print("[INFO - FaceNet Testing] -- Test time: " + dateNow)
 print("[INFO - FaceNet Testing] -- Used model: {" + weightsFilename + "}")
+print("[INFO - FaceNet Testing] -- Wrote to: " + resultsPath)
 print("[INFO - FaceNet Testing] -- Params - includeUniques:", includeUniques, "positivePortion:", positivePortion)
 print("[INFO - FaceNet Testing] -- Computing Precision and Recall:")
 print((modelPrecision, modelRecall))

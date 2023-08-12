@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.9.7
+# Version     :   0.9.8
 # Description :   faceNet training script
 
-# Date:       :   Aug 09, 2023
+# Date:       :   Aug 11, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 

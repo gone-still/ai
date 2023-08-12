@@ -1,8 +1,8 @@
 # File        :   siameseBranch.py
-# Version     :   0.9.8
+# Version     :   0.9.9
 # Description :   Implements one siamese branch of the faceNet architecture
 
-# Date:       :   Aug 09, 2023
+# Date:       :   Aug 11, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -63,6 +63,16 @@ def buildSiameseBranch(inputShape, embeddingDim=100):
     max2 = MaxPooling2D()(conv2)
     max2 = BatchNormalization(axis=chanDim)(max2)
 
+    # # [2] Drop out:
+    # drop3 = Dropout(rate=0.35)(max2)
+    #
+    # # == [2] Convolutional Layers:
+    # drop3 = Conv2D(filters=64, kernel_size=3, padding="same", activation="relu",
+    #                kernel_initializer="he_normal")(drop3)
+    # # [2] Max Pooling:
+    # drop3 = MaxPooling2D()(drop3)
+    # drop3 = BatchNormalization(axis=chanDim)(drop3)
+
     # [2] Drop out:
     drop3 = Dropout(rate=0.35)(max2)
 
@@ -91,7 +101,7 @@ def buildSiameseBranch(inputShape, embeddingDim=100):
 
     # == Fully connected layers:
     # [1] Dense:
-    dense1 = Dense(512, activation="relu", kernel_initializer="he_normal")(globalPooled)
+    dense1 = Dense(256, activation="relu", kernel_initializer="he_normal")(globalPooled)
     dense1 = BatchNormalization()(dense1)
     drop6 = Dropout(rate=0.35)(dense1)
 
