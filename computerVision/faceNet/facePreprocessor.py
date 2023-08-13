@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.12.0
+# Version     :   0.13.1
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Aug 09, 2023
+# Date:       :   Aug 12, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -13,10 +13,23 @@ import cv2
 import os
 import math
 
+from natsort import os_sorted
+
+from pathlib import Path
+import time
+
 import mtcnn
 
-from imutils import paths
-from glob import glob
+
+# Read an image:
+def readImage(imagePath):
+    # Loads image:
+    inputImage = cv2.imread(imagePath)
+    # Checks if image was successfully loaded:
+    if inputImage is None:
+        raise TypeError("readImage>> Error: Could not load Input image.")
+
+    return inputImage
 
 
 # Defines a re-sizable image window:
@@ -175,14 +188,7 @@ cascadeParams = {
 
 # For testing, process just one class:
 processAll = False
-targetClasses = ["Alexandra Daddario", "Michael Jackson"]
-
-# Stats dictionary:
-detectorsStats = {}
-# Set the stats dictionary
-for i in range(len(cascadeNames)):
-    currentName = cascadeNames[i]
-    detectorsStats[currentName] = [0.0, 0.0]
+targetClasses = ["Uniques"]
 
 # Set the random seed:
 randomSeed = 420
@@ -194,6 +200,9 @@ eyesSize = (300, 300)
 # Eye proportions (from eye centroid to eye bbox via mtcnn):
 wRatio = 0.28
 hRatio = 0.13
+
+# Run face detectors?
+detectFaces = True
 
 # Detected face filters:
 testVariance = False
@@ -210,11 +219,33 @@ writeCropped = True
 # Display every processed image?
 displayImages = False
 
+# Process images alphabetically by file name?
+# True -> alphabetically, False -> creation date
+alphabeticalSort = False
+
 # Save png version of input?
-# (ignore if the image is already png)
 savePng = True
+
+# Ignore if file is already png?
+overwritePng = False
 deleteOriginal = True
-renameOriginalPair = False
+
+# Rename original files to "sample/pair":
+renameFiles = True
+
+# Uniques dir suffix:
+dirSuffix = " Test"
+
+# Stats dictionary:
+detectorsStats = {}
+
+# Set the stats dictionary
+for i in range(len(cascadeNames)):
+    currentName = cascadeNames[i]
+    detectorsStats[currentName] = [0.0, 0.0]
+
+# Missed detections dictionary:
+missedDetections = {}
 
 # Load each image path of the dataset:
 print("[FaceNet Pre-processor] Loading images...")
@@ -225,21 +256,9 @@ detector = mtcnn.MTCNN()
 # Set random seed:
 random.seed(randomSeed)
 
-if processAll:
-
-    # Get list of full subdirectories paths:
-    classesDirectories = glob(datasetPath + "//*//", recursive=True)
-    classesDirectories.sort()
-
-    # Trim root directory, leave only subdirectories names (these will be the classes):
-    rootLength = len(datasetPath)
-    classesImages = [dirName[rootLength + 1:-1] for dirName in classesDirectories]
-
-else:
-
-    # Process this specific class:
-    classesDirectories = [datasetPath + "//" + targetClass + "//" for targetClass in targetClasses]
-    classesImages = targetClasses
+# Process the list of classes:
+classesDirectories = [datasetPath + "//" + targetClass + dirSuffix + "//" for targetClass in targetClasses]
+classesImages = targetClasses
 
 # Get total classes:
 totalClasses = len(classesImages)
@@ -279,24 +298,50 @@ for c, currentDirectory in enumerate(classesDirectories):
     print("[FaceNet Pre-processor] Class path: " + currentDirectory)
 
     # Images for this class:
-    imagePaths = list(paths.list_images(currentDirectory))
+    if alphabeticalSort:
+        # Get and store files alphabetically:
+        print("[FaceNet Pre-processor] Sorting images alphabetically...")
+        imagePaths = os_sorted(Path(currentDirectory).iterdir())
+
+    else:
+        # Get and store files according to creation date:
+        print("[FaceNet Pre-processor] Sorting images by creation date...")
+        imagePaths = sorted(Path(currentDirectory).iterdir(), key=os.path.getctime)
+
     totalImages = len(imagePaths)
 
     # Randomize images?
     # Do not randomize for unique pairs:
     if currentClass != "Uniques":
-        random.shuffle(imagePaths)
-        # Set image prefix:
-        imagePrefix = "sample-"
-    else:
-        # Set image prefix:
-        imagePrefix = "pair-"
+        # Shake that hat:
+        for i in range(10):
+            random.shuffle(imagePaths)
+
+    # Create filenames dictionary:
+    filenamesDict = {}
+    for i, f in enumerate(imagePaths):
+        # Get filename only (without extension):
+        currentFilename = f.stem
+        # Into the dictionary:
+        if currentClass != "Uniques":
+            # Sample out name will only be the image count:
+            filenamesDict[currentFilename] = "sample-" + str(i + 1)
+        else:
+            # Set pair number:
+            pairCount = math.ceil(0.5 * (i + 1))
+            # Set pair char:
+            if (i + 1) % 2 == 1:
+                pairChar = "A"
+            else:
+                pairChar = "B"
+            # Set outfile name according to pair "rule":
+            filenamesDict[currentFilename] = "pair-" + str(pairCount) + "-" + pairChar
 
     currentClass = classesImages[c]
     print("[FaceNet Pre-processor] Class: " + currentClass + " Samples: " + str(totalImages))
 
     # Set cropped output path:
-    writePath = croppedPath + currentClass + "//"
+    writePath = croppedPath + currentClass + dirSuffix + "//"
 
     # Create output directory:
     directoryExists = os.path.isdir(writePath)
@@ -309,44 +354,61 @@ for c, currentDirectory in enumerate(classesDirectories):
         if directoryExists:
             print("[FaceNet Pre-processor] Successfully created directory: " + writePath)
 
+    # Prepare missed detections log for this class:
+    missedDetections[currentClass] = []
+
     # Pre-process each image:
     sampleCount = 0
     faceCount = 0
     writtenImages = 0
     totalDetections = 0
 
-    # Unique pair counter:
-    pairCount = 0.5
-
     # Last saved image name:
     lastSaved = "-"
-    lastChar = "-"
+    lastChar = "*"
 
-    # Successful unique pair written:
-    validPair = False
-    stringBuffer = ""
-    originalPaths = {"A": {"old": "", "new": ""},
-                     "B": {"old": "", "new": ""}}
+    # Processed files counter:
+    filesProcessed = 0
 
-    for currentPath in imagePaths:
+    for j, currentPath in enumerate(imagePaths):
+        # Processed files counter goes up:
+        filesProcessed += 1
+
+        # Get absolute path:
+        currentPath = os.path.abspath(currentPath)
+
+        # Get filename (without extension):
+        currentFilename = imagePaths[j].stem
+        # Get extension:
+        currentExtension = imagePaths[j].suffix
+
+        # Print info:
+        print("[" + str(j + 1) + "/" + str(totalImages) + "] Image: " + str(currentPath),
+              "Date: " + str(time.ctime(os.path.getctime(currentPath))))
 
         # Load the image:
-        currentImage = cv2.imread(currentPath)
+        currentImage = readImage(currentPath)
         currentImageCopy = currentImage.copy()
 
         # Save png version:
         if savePng:
-            # Get file name:
-            filenameString = currentPath.split(".")
-            # Check extension before saving & deleting:
-            if filenameString[1] != "png":
-                filenameString = filenameString[0] + ".png"
-                print("[FaceNet Pre-processor] Writing PNG image: " + filenameString)
-                writeImage(filenameString, currentImage)
+
+            if overwritePng or currentExtension != ".png":
+
                 # Remove original image:
                 if deleteOriginal:
                     print("[FaceNet Pre-processor] Removing File: " + currentPath)
                     os.remove(currentPath)
+
+                # Create out name:
+                parentDir = str(imagePaths[j].parent) + "//"
+                if renameFiles:
+                    currentFilename = filenamesDict[currentFilename]
+
+                filenameString = parentDir + currentFilename + ".png"
+
+                print("[FaceNet Pre-processor] Writing PNG image: " + filenameString)
+                writeImage(filenameString, currentImage)
 
         # BGR to gray:
         grayImage = cv2.cvtColor(currentImage, cv2.COLOR_BGR2GRAY)
@@ -355,6 +417,10 @@ for c, currentDirectory in enumerate(classesDirectories):
         # Show image:
         if displayImages:
             showImage("Class: " + currentClass + " Sample: " + str(sampleCount), grayImage)
+
+        # Detect faces?
+        if not detectFaces:
+            continue
 
         # Detect face with each detector:
         # Set default face detector via index:
@@ -469,6 +535,11 @@ for c, currentDirectory in enumerate(classesDirectories):
 
         # Break loop if no detections
         if totalFaces == 0:
+            # Log missed detections,
+            # Do not duplicate entries:
+            if currentFilename not in missedDetections[currentClass]:
+                missedDetections[currentClass].append(currentFilename)
+            # Abort iteration:
             continue
 
         # Set up some variable counters:
@@ -524,8 +595,6 @@ for c, currentDirectory in enumerate(classesDirectories):
                     currentChar = "A"
                 else:
                     currentChar = "B"
-                # Save complete progression string:
-                stringBuffer = stringBuffer + currentChar
 
             # Rotate output image?:
             if rotateCrop:
@@ -567,6 +636,12 @@ for c, currentDirectory in enumerate(classesDirectories):
                         print("[FaceNet Pre-processor] Skipping sample...")
                         imageOk = False
 
+            # Log failed detection:
+            if not imageOk:
+                # Do not duplicate entries:
+                if currentFilename not in missedDetections[currentClass]:
+                    missedDetections[currentClass].append(currentFilename)
+
             # Save image to outputDirectory:
             # Do not save the image if no eyes have been detected
             # Option is overriden by the "eyes check" flag:
@@ -576,6 +651,7 @@ for c, currentDirectory in enumerate(classesDirectories):
                 maxEyes = 2
             eyesCondition = maxEyes >= totalEyes > 0
             if eyesCondition or bypassEyesTest:
+
                 # Check manual filter:
                 if writeCropped and imageOk:
 
@@ -583,79 +659,45 @@ for c, currentDirectory in enumerate(classesDirectories):
                     if currentClass != "Uniques":
 
                         # Not unique pair, straightforward file name:
-                        imageName = str(faceCount) + "-" + str(subfaceCount)
+                        # imageName = str(faceCount) + "-" + str(subfaceCount)
+                        imageName = filenamesDict[currentFilename] + "-" + str(subfaceCount)
 
                     else:
 
                         # Check that this is truly a pair in the A-B sequence:
                         print("[FaceNet Pre-processor] Pair:", currentChar, lastChar)
                         print("[FaceNet Pre-processor] Last Saved:", lastSaved)
-                        if currentChar == lastChar:
+                        if (currentChar == lastChar) or (currentChar == "B" and lastChar == "*"):
+
                             # Missed one image from this pair...
                             print("[FaceNet Pre-processor] Skipped a pair image...")
-
-                            print(pairCount)
 
                             # Delete last saved...
                             if currentChar == "A":
                                 print("[FaceNet Pre-processor] Deleting last saved...: " + lastSaved)
                                 os.remove(lastSaved)
-                                pairCount = pairCount - 0.5
-                                stringBuffer = ""
-                                # continue
 
                             else:
                                 # Buffer the char used:
                                 lastChar = "-"
                                 print("[FaceNet Pre-processor] Skipping image...")
-                                stringBuffer = ""
+
                                 # Abort:
                                 continue
 
                         # Set name for unique pair:
-                        imageName = str(math.ceil(pairCount)) + "-" + currentChar
-                        pairCount = pairCount + 0.5
+                        # imageName = filenamesDict[imagePaths[j].stem]
+
                         # Buffer the char used:
                         lastChar = currentChar
 
-                        # Save the old and new path:
-                        originalPaths[currentChar]["old"] = currentPath
-
-                        # Construct new path, get original directory:
-                        originalPath = currentPath.split("//")
-                        buffer = ""
-
-                        for i in range(len(originalPath) - 1):
-                            subString = originalPath[i]
-                            buffer = buffer + subString + "//"
-
-                        # Set the nre path:
-                        originalPaths[currentChar]["new"] = buffer + imagePrefix + imageName + ".png"
-
-                        # Check if valid pair:
-                        if stringBuffer == "AB":
-                            validPair = True
-                            stringBuffer = ""
-                            # print("[Got valid pair.]")
-
                     # Write the image:
-                    imagePath = writePath + imagePrefix + imageName + ".png"
+                    imagePath = writePath + currentFilename + ".png"
                     # Save the last file path written:
                     lastSaved = imagePath
+                    print("Writing image: " + imagePath)
                     writeImage(imagePath, croppedFace)
                     writtenImages += 1
-
-                    if currentClass == "Uniques" and validPair:
-
-                        validPair = False
-                        print("[Got valid pair]", originalPaths["A"], originalPaths["B"])
-
-                        if renameOriginalPair:
-                            for i, key in enumerate(originalPaths):
-                                oldPath = originalPaths[key]["old"]
-                                newPath = originalPaths[key]["new"]
-                                print("Rename: " + str(i), oldPath, "->", newPath)
-                                os.rename(oldPath, newPath)
 
                     # Store some stats. Actual images written counter for this particular detector:
                     detectorsStats[detectorName][1] += 1
@@ -671,6 +713,7 @@ for c, currentDirectory in enumerate(classesDirectories):
     processCounters["totalDetections"] += totalDetections
     processCounters["writtenImages"] += writtenImages
 
+    print(currentClass + " - Processed files: " + str(filesProcessed))
     print(">> [FaceNet Pre-processor] Detected faces rate: " + str(faceCount) + "/" + str(
         totalImages) + " [" + f"{detectionRate:.4f}" + "%]" + " Written: " + str(writtenImages) + "/" + str(
         totalImages) + " [" + f"{writtenRate:.4f}" + "%]")
@@ -702,3 +745,17 @@ for currentDetector in detectorsStats:
                                                             "Written: " + str(facesWritten),
                                                             "D(%): " + detectionPercent,
                                                             "W(%): " + writtenPercent))
+
+# Print stats per detector:
+print("\nMissed Detections:")
+totalMissedDetections = 0
+for currentClass in missedDetections:
+    print("Class: " + currentClass)
+    missedList = missedDetections[currentClass]
+    for i, currentImage in enumerate(missedList):
+        # Show the info:
+        print(" ", i, currentImage)
+        # Accumulate missed images:
+        totalMissedDetections += 1
+
+print("Total Missed Detections: ", totalMissedDetections)
