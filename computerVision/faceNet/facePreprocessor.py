@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.13.1
+# Version     :   0.14.0
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Aug 12, 2023
+# Date:       :   Aug 14, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -188,7 +188,10 @@ cascadeParams = {
 
 # For testing, process just one class:
 processAll = False
-targetClasses = ["Uniques"]
+targetClasses = ["Hugh Laurie"]
+
+# Uniques dir suffix:
+dirSuffix = ""  # " Test"
 
 # Set the random seed:
 randomSeed = 420
@@ -204,6 +207,9 @@ hRatio = 0.13
 # Run face detectors?
 detectFaces = True
 
+# Fresh start/add new samples to existing directory:
+resumeCropping = True
+
 # Detected face filters:
 testVariance = False
 bypassEyesTest = False
@@ -218,6 +224,8 @@ writeCropped = True
 
 # Display every processed image?
 displayImages = False
+# Display just final (to-be-written) image?
+displayFinal = False
 
 # Process images alphabetically by file name?
 # True -> alphabetically, False -> creation date
@@ -226,15 +234,15 @@ alphabeticalSort = False
 # Save png version of input?
 savePng = True
 
-# Ignore if file is already png?
+# Ignore if file is already png? (forced png writing)
 overwritePng = False
 deleteOriginal = True
 
 # Rename original files to "sample/pair":
 renameFiles = True
 
-# Uniques dir suffix:
-dirSuffix = " Test"
+# File name suffix (sample or pair):
+fileNameSufix = "-"
 
 # Stats dictionary:
 detectorsStats = {}
@@ -297,6 +305,40 @@ for c, currentDirectory in enumerate(classesDirectories):
           " [" + str(c + 1) + "/" + str(totalClasses) + "]")
     print("[FaceNet Pre-processor] Class path: " + currentDirectory)
 
+    # Set cropped output path:
+    writePath = croppedPath + currentClass + dirSuffix + "//"
+    print("[FaceNet Pre-processor] Target path: " + writePath)
+
+    # Create output directory:
+    directoryExists = os.path.isdir(writePath)
+    if not directoryExists:
+
+        print("[FaceNet Pre-processor] Creating Directory: " + writePath)
+        os.mkdir(writePath)
+        directoryExists = os.path.isdir(writePath)
+
+        if directoryExists:
+            print("[FaceNet Pre-processor] Successfully created directory: " + writePath)
+
+    # Check out target directory, if resume cropping is enabled, keep writing sample where
+    # the last sample left off...
+    latestFileTime = -1
+    if directoryExists and resumeCropping:
+        # Get list of already created croppings:
+        existingImages = sorted(Path(writePath).iterdir(), key=os.path.getctime)
+
+        # Check if empty list:
+        if not existingImages:
+            print("[FaceNet Pre-processor] Found empty target directory, but resumeCropping was set. Switching...")
+            resumeCropping = False
+        else:
+            # Get last file:
+            lastFile = existingImages[-1]
+            # Get creation time of last file:
+            latestFileTime = os.path.getctime(lastFile)
+            print("[FaceNet Pre-processor] Last created sample: " + lastFile.stem + " Time: " + time.ctime(
+                latestFileTime) + " (" + str(latestFileTime) + ")")
+
     # Images for this class:
     if alphabeticalSort:
         # Get and store files alphabetically:
@@ -309,6 +351,7 @@ for c, currentDirectory in enumerate(classesDirectories):
         imagePaths = sorted(Path(currentDirectory).iterdir(), key=os.path.getctime)
 
     totalImages = len(imagePaths)
+    print("Total Class files: " + str(totalImages))
 
     # Randomize images?
     # Do not randomize for unique pairs:
@@ -317,15 +360,27 @@ for c, currentDirectory in enumerate(classesDirectories):
         for i in range(10):
             random.shuffle(imagePaths)
 
+    # Create filtered dict:
+    if resumeCropping:
+        filteredDict = {}
+
     # Create filenames dictionary:
     filenamesDict = {}
+    # Skipped images counter:
+    skippedImages = 0
     for i, f in enumerate(imagePaths):
+
         # Get filename only (without extension):
         currentFilename = f.stem
+
+        # Get file time:
+        fileTime = os.path.getctime(f)
+
         # Into the dictionary:
         if currentClass != "Uniques":
             # Sample out name will only be the image count:
-            filenamesDict[currentFilename] = "sample-" + str(i + 1)
+            fileNameSufix = "sample"
+            filenamesDict[currentFilename] = fileNameSufix + "-" + str(i + 1)
         else:
             # Set pair number:
             pairCount = math.ceil(0.5 * (i + 1))
@@ -334,25 +389,35 @@ for c, currentDirectory in enumerate(classesDirectories):
                 pairChar = "A"
             else:
                 pairChar = "B"
+
             # Set outfile name according to pair "rule":
-            filenamesDict[currentFilename] = "pair-" + str(pairCount) + "-" + pairChar
+            fileNameSufix = "pair"
+            filenamesDict[currentFilename] = fileNameSufix + "-" + str(pairCount) + "-" + pairChar
+
+        # if resume enabled, discard all images that where created BEFORE the latest file:
+        if resumeCropping:
+            # print(i, currentFilename, fileTime, latestFileTime)
+            if fileTime > latestFileTime:
+                filteredDict[currentFilename] = filenamesDict[currentFilename]
+                print(str(i) + " New File: " + currentFilename)
+            else:
+                skippedImages += 1
+
+    # If cropping enabled...
+    if resumeCropping:
+        print("Total skipped images: " + str(skippedImages))
+        print("Total new images: " + str(len(filteredDict)))
+        print("Total: " + str(totalImages))
+        # Set the filenames dict to the filtered dict:
+        filenamesDict = filteredDict
+        # Set new images paths list:
+        imagePaths = imagePaths[skippedImages:]
+        # Set new total images count:
+        totalImages = len(imagePaths)
+        print("First image: " + str(imagePaths[0]))
 
     currentClass = classesImages[c]
     print("[FaceNet Pre-processor] Class: " + currentClass + " Samples: " + str(totalImages))
-
-    # Set cropped output path:
-    writePath = croppedPath + currentClass + dirSuffix + "//"
-
-    # Create output directory:
-    directoryExists = os.path.isdir(writePath)
-    if not directoryExists:
-
-        print("[FaceNet Pre-processor] Creating Directory: " + writePath)
-        os.mkdir(writePath)
-        directoryExists = os.path.isdir(writePath)
-
-        if directoryExists:
-            print("[FaceNet Pre-processor] Successfully created directory: " + writePath)
 
     # Prepare missed detections log for this class:
     missedDetections[currentClass] = []
@@ -390,23 +455,27 @@ for c, currentDirectory in enumerate(classesDirectories):
         currentImage = readImage(currentPath)
         currentImageCopy = currentImage.copy()
 
-        # Save png version:
-        if savePng:
+        # Check if original file must be overwritten (should be either sample or pair):
+        currentFilenamePrefix = currentFilename.split("-")[0]
 
-            if overwritePng or currentExtension != ".png":
+        # Rewrite original files is flag is set or image name is different from processed
+        # suffix: either "sample" or "pair"
+        if overwritePng or currentFilenamePrefix != fileNameSufix:
 
-                # Remove original image:
-                if deleteOriginal:
-                    print("[FaceNet Pre-processor] Removing File: " + currentPath)
-                    os.remove(currentPath)
+            # Remove original image:
+            if deleteOriginal:
+                print("[FaceNet Pre-processor] Removing File: " + currentPath)
+                os.remove(currentPath)
 
-                # Create out name:
-                parentDir = str(imagePaths[j].parent) + "//"
-                if renameFiles:
-                    currentFilename = filenamesDict[currentFilename]
+            # Create out name:
+            parentDir = str(imagePaths[j].parent) + "//"
+            if renameFiles:
+                currentFilename = filenamesDict[currentFilename]
 
-                filenameString = parentDir + currentFilename + ".png"
+            filenameString = parentDir + currentFilename + ".png"
 
+            # Save png version:
+            if savePng:
                 print("[FaceNet Pre-processor] Writing PNG image: " + filenameString)
                 writeImage(filenameString, currentImage)
 
@@ -546,6 +615,10 @@ for c, currentDirectory in enumerate(classesDirectories):
         faceCount += 1  # Counts detections
         subfaceCount = 0  # Counts ROIs per detections
 
+        # Found valid subface flag:
+        foundValidFace = False
+
+        # Check every found ROI:
         for currentROI in facesROIs:
             # Increase face counter in this image:
             subfaceCount += 1
@@ -636,12 +709,6 @@ for c, currentDirectory in enumerate(classesDirectories):
                         print("[FaceNet Pre-processor] Skipping sample...")
                         imageOk = False
 
-            # Log failed detection:
-            if not imageOk:
-                # Do not duplicate entries:
-                if currentFilename not in missedDetections[currentClass]:
-                    missedDetections[currentClass].append(currentFilename)
-
             # Save image to outputDirectory:
             # Do not save the image if no eyes have been detected
             # Option is overriden by the "eyes check" flag:
@@ -649,18 +716,20 @@ for c, currentDirectory in enumerate(classesDirectories):
                 maxEyes = 4
             else:
                 maxEyes = 2
+
             eyesCondition = maxEyes >= totalEyes > 0
+
             if eyesCondition or bypassEyesTest:
 
                 # Check manual filter:
-                if writeCropped and imageOk:
+                if imageOk:
 
                     # Check class type:
                     if currentClass != "Uniques":
 
                         # Not unique pair, straightforward file name:
                         # imageName = str(faceCount) + "-" + str(subfaceCount)
-                        imageName = filenamesDict[currentFilename] + "-" + str(subfaceCount)
+                        imageName = filenamesDict[imagePaths[j].stem] + "-" + str(subfaceCount)
 
                     else:
 
@@ -695,12 +764,28 @@ for c, currentDirectory in enumerate(classesDirectories):
                     imagePath = writePath + currentFilename + ".png"
                     # Save the last file path written:
                     lastSaved = imagePath
+
+                    # Found valid face:
+                    foundValidFace = True
+
                     print("Writing image: " + imagePath)
-                    writeImage(imagePath, croppedFace)
-                    writtenImages += 1
+
+                    if writeCropped:
+                        writeImage(imagePath, croppedFace)
+                        writtenImages += 1
+
+                    # Show final image?
+                    if displayFinal:
+                        showImage("Out Image", croppedFace)
 
                     # Store some stats. Actual images written counter for this particular detector:
                     detectorsStats[detectorName][1] += 1
+
+        # Log failed detection if valid subface was not found:
+        if not foundValidFace:
+            # Do not duplicate entries:
+            if currentFilename not in missedDetections[currentClass]:
+                missedDetections[currentClass].append(currentFilename)
 
     # Get a couple of stats:
     detectionRate = (faceCount / totalImages) * 100
