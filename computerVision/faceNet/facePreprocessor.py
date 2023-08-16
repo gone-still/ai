@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.14.0
+# Version     :   0.15.1
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Aug 14, 2023
+# Date:       :   Aug 15, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -12,10 +12,11 @@ import random
 import cv2
 import os
 import math
+import numpy as np
 
 from natsort import os_sorted
-
 from pathlib import Path
+
 import time
 
 import mtcnn
@@ -187,11 +188,10 @@ cascadeParams = {
 # faceDetectorColor = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (0, 255, 255), (192, 0, 192)]
 
 # For testing, process just one class:
-processAll = False
-targetClasses = ["Hugh Laurie"]
+targetClasses = ["Uniques"]
 
 # Uniques dir suffix:
-dirSuffix = ""  # " Test"
+dirSuffix = " Test"
 
 # Set the random seed:
 randomSeed = 420
@@ -235,7 +235,7 @@ alphabeticalSort = False
 savePng = True
 
 # Ignore if file is already png? (forced png writing)
-overwritePng = False
+overwritePng = True
 deleteOriginal = True
 
 # Rename original files to "sample/pair":
@@ -261,8 +261,9 @@ print("[FaceNet Pre-processor] Loading images...")
 # mtcnn detector:
 detector = mtcnn.MTCNN()
 
-# Set random seed:
+# Set random seeds:
 random.seed(randomSeed)
+np.random.seed(randomSeed)
 
 # Process the list of classes:
 classesDirectories = [datasetPath + "//" + targetClass + dirSuffix + "//" for targetClass in targetClasses]
@@ -323,17 +324,24 @@ for c, currentDirectory in enumerate(classesDirectories):
     # Check out target directory, if resume cropping is enabled, keep writing sample where
     # the last sample left off...
     latestFileTime = -1
-    if directoryExists and resumeCropping:
+    lastSavedFileNumber = 0
+    if directoryExists:
         # Get list of already created croppings:
         existingImages = sorted(Path(writePath).iterdir(), key=os.path.getctime)
 
         # Check if empty list:
         if not existingImages:
-            print("[FaceNet Pre-processor] Found empty target directory, but resumeCropping was set. Switching...")
+            print("Found no existent images in target directory. Saving from scratch...")
+            # Can't resume cropping without previously cropped images:
             resumeCropping = False
         else:
             # Get last file:
             lastFile = existingImages[-1]
+
+            # Get number of last saved file:
+            lastSavedFileNumber = int(lastFile.stem.split("-")[1])
+            print("Starting file number: " + str(lastSavedFileNumber))
+
             # Get creation time of last file:
             latestFileTime = os.path.getctime(lastFile)
             print("[FaceNet Pre-processor] Last created sample: " + lastFile.stem + " Time: " + time.ctime(
@@ -353,12 +361,12 @@ for c, currentDirectory in enumerate(classesDirectories):
     totalImages = len(imagePaths)
     print("Total Class files: " + str(totalImages))
 
-    # Randomize images?
-    # Do not randomize for unique pairs:
+    # Prepare the random vector of names for non-unique classes:
     if currentClass != "Uniques":
-        # Shake that hat:
-        for i in range(10):
-            random.shuffle(imagePaths)
+        # Randomly create images list for output:
+        choicesArray = np.arange(1, totalImages + 1, 1, dtype=int)
+        choicesArray = np.random.choice(choicesArray, len(choicesArray), replace=False)
+        choicesDict = {}
 
     # Create filtered dict:
     if resumeCropping:
@@ -380,7 +388,16 @@ for c, currentDirectory in enumerate(classesDirectories):
         if currentClass != "Uniques":
             # Sample out name will only be the image count:
             fileNameSufix = "sample"
-            filenamesDict[currentFilename] = fileNameSufix + "-" + str(i + 1)
+            # Choose random generated out number from choices array:
+            randomChoice = choicesArray[i]
+            # imageCount = i + 1
+            outName = fileNameSufix + "-" + str(randomChoice)
+            # Check non-repetitive:
+            if outName not in choicesDict:
+                choicesDict[outName] = 1
+            else:
+                print("Found repeated random value...")
+            filenamesDict[currentFilename] = outName
         else:
             # Set pair number:
             pairCount = math.ceil(0.5 * (i + 1))
@@ -396,7 +413,7 @@ for c, currentDirectory in enumerate(classesDirectories):
 
         # if resume enabled, discard all images that where created BEFORE the latest file:
         if resumeCropping:
-            # print(i, currentFilename, fileTime, latestFileTime)
+            print(i, currentFilename, fileTime, latestFileTime)
             if fileTime > latestFileTime:
                 filteredDict[currentFilename] = filenamesDict[currentFilename]
                 print(str(i) + " New File: " + currentFilename)
@@ -448,7 +465,7 @@ for c, currentDirectory in enumerate(classesDirectories):
         currentExtension = imagePaths[j].suffix
 
         # Print info:
-        print("[" + str(j + 1) + "/" + str(totalImages) + "] Image: " + str(currentPath),
+        print(">> [" + str(j + 1) + "/" + str(totalImages) + "] Image: " + str(currentPath),
               "Date: " + str(time.ctime(os.path.getctime(currentPath))))
 
         # Load the image:
@@ -477,6 +494,9 @@ for c, currentDirectory in enumerate(classesDirectories):
             # Save png version:
             if savePng:
                 print("[FaceNet Pre-processor] Writing PNG image: " + filenameString)
+                if os.path.exists(filenameString):
+                    print("File: " + filenameString + "Already exists. Renaming new file...")
+                    filenameString = parentDir + currentFilename + "_new" + ".png"
                 writeImage(filenameString, currentImage)
 
         # BGR to gray:
@@ -702,7 +722,7 @@ for c, currentDirectory in enumerate(classesDirectories):
                 # Inspect and manually discard samples:
                 if continueCondition:
                     print("[FaceNet Pre-processor] Pressed: " + str(key))
-                    if key == ord("e"):  # Press "e" to save image
+                    if key == (ord("e") or ord("E")):  # Press "e" to save image
                         print("[FaceNet Pre-processor] Saving sample to disk...")
                         totalEyes = 2
                     else:
@@ -755,13 +775,13 @@ for c, currentDirectory in enumerate(classesDirectories):
                                 continue
 
                         # Set name for unique pair:
-                        # imageName = filenamesDict[imagePaths[j].stem]
+                        imageName = currentFilename
 
                         # Buffer the char used:
                         lastChar = currentChar
 
                     # Write the image:
-                    imagePath = writePath + currentFilename + ".png"
+                    imagePath = writePath + imageName + ".png"
                     # Save the last file path written:
                     lastSaved = imagePath
 
