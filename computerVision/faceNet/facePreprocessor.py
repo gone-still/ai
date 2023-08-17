@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.15.1
+# Version     :   0.15.2
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Aug 15, 2023
+# Date:       :   Aug 16, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -168,6 +168,7 @@ croppedPath = outputPath + "//cropped//Train//"
 # Cascade files:
 cascadeNames = ["Default 1", "Default 2", "Alt", "Alt 2", "Profile", "MTCNN"]
 
+# Cascade files with rectangle color:
 cascadeDict = {
     cascadeNames[0]: {"File": "haarcascade_frontalface_default.xml", "Color": (0, 255, 0)},
     cascadeNames[1]: {"File": "haarcascade_frontalface_default.xml", "Color": (0, 130, 0)},
@@ -176,6 +177,7 @@ cascadeDict = {
     cascadeNames[4]: {"File": "haarcascade_profileface.xml", "Color": (0, 255, 255)}
 }
 
+# Cascade parameters:
 cascadeParams = {
     cascadeNames[0]: {"scaleFactor": 1.05, "minNeigh": 50, "minSize": 70, "maxSize": -1},
     cascadeNames[1]: {"scaleFactor": 1.01, "minNeigh": 150, "minSize": 90, "maxSize": -1},
@@ -184,14 +186,11 @@ cascadeParams = {
     cascadeNames[4]: {"scaleFactor": 1.01, "minNeigh": 10, "minSize": 300, "maxSize": 500}
 }
 
-# Cascade colors:
-# faceDetectorColor = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (0, 255, 255), (192, 0, 192)]
-
 # For testing, process just one class:
-targetClasses = ["Uniques"]
+targetClasses = ["Tobey Maguire"]
 
 # Uniques dir suffix:
-dirSuffix = " Test"
+dirSuffix = ""  # " Test"
 
 # Set the random seed:
 randomSeed = 420
@@ -229,13 +228,13 @@ displayFinal = False
 
 # Process images alphabetically by file name?
 # True -> alphabetically, False -> creation date
-alphabeticalSort = False
+alphabeticalSort = True
 
 # Save png version of input?
 savePng = True
 
 # Ignore if file is already png? (forced png writing)
-overwritePng = True
+overwritePng = False
 deleteOriginal = True
 
 # Rename original files to "sample/pair":
@@ -851,7 +850,7 @@ for currentDetector in detectorsStats:
                                                             "D(%): " + detectionPercent,
                                                             "W(%): " + writtenPercent))
 
-# Print stats per detector:
+# Print missed detections per image:
 print("\nMissed Detections:")
 totalMissedDetections = 0
 for currentClass in missedDetections:
