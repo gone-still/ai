@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.15.2
+# Version     :   0.15.3
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Aug 16, 2023
+# Date:       :   Aug 18, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -187,7 +187,7 @@ cascadeParams = {
 }
 
 # For testing, process just one class:
-targetClasses = ["Tobey Maguire"]
+targetClasses = ["Uniques"]
 
 # Uniques dir suffix:
 dirSuffix = ""  # " Test"
@@ -228,7 +228,7 @@ displayFinal = False
 
 # Process images alphabetically by file name?
 # True -> alphabetically, False -> creation date
-alphabeticalSort = True
+alphabeticalSort = False
 
 # Save png version of input?
 savePng = True

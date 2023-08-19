@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.9.8
+# Version     :   0.9.9
 # Description :   faceNet training script
 
-# Date:       :   Aug 11, 2023
+# Date:       :   Aug 18, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -191,7 +191,7 @@ includeUniques = True
 # Display unique pairs?
 displayUniques = False
 # How many unique pairs must be included:
-totalUniques = 1552
+totalUniques = 2570
 
 # Skip images from this class:
 excludedClasses = ["Uniques"]
@@ -725,6 +725,7 @@ for currentDataset in ["Train", "Test"]:
 
     # Set array from where the random negative samples will be drawn from:
     choicesArray = np.arange(0, currentSize, 1, dtype=int)
+    choicesArray = np.random.choice(choicesArray, len(choicesArray), replace=False)
 
     # Process negative pairs:
     totalNegatives = currentSize * negativeRatio
@@ -742,11 +743,14 @@ for currentDataset in ["Train", "Test"]:
         # Randomly choose two sample rows:
         for s in range(2):
             getRows = True
+            randomIndex = j
             while getRows:
                 # Get a random row from the positive pairs list,
                 # "Flatten" to an integer, since the return value is
                 # an array:
-                randomChoice = np.random.choice(choicesArray, 1)[0]
+                # randomChoice = np.random.choice(choicesArray, 1)[0]
+                # print(randomIndex)
+                randomChoice = choicesArray[randomIndex]
 
                 # Actually Get the random row:
                 randomRow = currentList[randomChoice]
@@ -774,6 +778,13 @@ for currentDataset in ["Train", "Test"]:
 
                     # Present is now past:
                     pastClass = rowClass
+
+                else:
+                    # Select another row, via the random index:
+                    if randomIndex < len(choicesArray)-1:
+                        randomIndex += 1
+                    else:
+                        randomIndex = 0
 
         # This is a negative pair:
         tempList.append(0)
