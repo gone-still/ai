@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.9.9
+# Version     :   0.9.15
 # Description :   faceNet training script
 
-# Date:       :   Aug 18, 2023
+# Date:       :   Aug 22, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -191,7 +191,7 @@ includeUniques = True
 # Display unique pairs?
 displayUniques = False
 # How many unique pairs must be included:
-totalUniques = 2570
+totalUniques = 3252
 
 # Skip images from this class:
 excludedClasses = ["Uniques"]
@@ -209,7 +209,7 @@ saveWeights = True
 
 # Generator generates this amount of positive pairs for training [0] and validation [1]:
 # This is the "batch size" for positives:
-nPositive = {"Train": 256, "Test": 256}
+nPositive = {"Train": 128, "Test": 128}
 
 # Negative portion:
 # Batch size: nPositive + negativeRatio * nPositive
@@ -260,6 +260,10 @@ weightsFilename = "facenetWeights" + "-" + configParameters["weightsFilename"] +
 
 # Print tf info:
 print("[INFO - FaceNet Training] -- Tensorflow ver:", tf.__version__)
+
+# Explicitly set GPU as computing device:
+physical_devices = tf.config.list_physical_devices("GPU")
+tf.config.set_visible_devices(physical_devices[0], "GPU")
 
 # Load each image path of the dataset:
 print("[INFO - FaceNet Training] -- Loading images...")
@@ -422,10 +426,12 @@ print("[INFO - FaceNet Training] -- Generating: ", pairsPerClass, " pairs per cl
 positivePairs = []
 
 for currentClass in facesDataset:
+
     # Get images of current class:
     classImages = facesDataset[currentClass]
     # Shuffle images:
-    random.shuffle(classImages)
+    for i in range(10):
+        random.shuffle(classImages)
 
     # Get total samples for this class:
     classSamples = len(classImages)
@@ -434,65 +440,105 @@ for currentClass in facesDataset:
     processedPairs = 0
 
     pairsCreated = {}
+    classCode = -1
 
-    for i in range(pairsPerClass):
+    # Store the current pair here:
+    currentPair = [0, 0]
 
-        createPair = True
-        randomSamples = [0, 0]
+    # Local pair counter:
+    pairCount = 0
 
-        while createPair:
+    for i in range(classSamples - 1):
 
-            choices = list(range(0, classSamples))
+        # Get first class sample:
+        firstSample = classImages[i]
 
-            # Randomly choose a first sample:
-            randomSamples[0] = random.choice(choices)
+        # Log pair index:
+        currentPair[0] = i
 
-            # Randomly choose a second sample, excluding the one already
-            # chosen:
-            randomSamples[1] = random.choice(list(set(choices) - set([randomSamples[0]])))
+        # Show first image
+        if displayImages:
+            showImage(currentClass + "Current Pair {A}", firstSample)
 
-            # Has the pair already been created?
-            dictKey = "-".join(str(i) for i in randomSamples)
+        for j in range(i + 1, classSamples):
+
+            # Store sample pair here:
+            tempList = []
+            # First sample goes into the temp list:
+            tempList.append(firstSample)
+
+            # Get second class sample:
+            secondSample = classImages[j]
+            # Into the temp list:
+            tempList.append(secondSample)
+
+            # Finally, store class code:
+            classCode = classesDictionary[currentClass]
+            tempList.append(classCode)
+
+            # Into the positive pairs list:
+            positivePairs.append(tempList)
+            processedPairs += 1
+
+            # Log pair index:
+            currentPair[1] = j
+
+            # Log created positive pair:
+            dictKey = "-".join(str(i) for i in currentPair)
+
             if dictKey not in pairsCreated:
                 # Register created pair:
                 pairsCreated[dictKey] = True
                 # Exit pair-creating loop:
                 createPair = False
-            # else:
-            #     print(" ", "Pair: ", randomSamples,
-            #           "(" + dictKey + ") has already been created, generating new pair...", len(pairsCreated))
+                print("Class: ", currentClass, "Pair: ", currentPair)
+            else:
+                # For some reason, the same pair was built more than once:
+                raise TypeError("Class:, ", currentClass, " Pair: ", currentPair,
+                                "(" + dictKey + ") has already been created")
 
-        # Print the chosen samples:
-        print(" ", "Processing pair: " + str(processedPairs), randomSamples)
-
-        # Store sample pair here:
-        tempList = []
-
-        # Get images from dataset:
-        for s in range(len(randomSamples)):
-            sampleIndex = randomSamples[s]
-            currentImage = classImages[sampleIndex]
-            # Show image
+            # Show second image
             if displayImages:
-                showImage(currentClass + " Pair: " + str(s), currentImage)
+                showImage(currentClass + "Current Pair {B}", currentImage)
 
-            # Into the temp list:
-            tempList.append(currentImage)
+            # Show the whole pair:
+            if displayImages:
+                # Horizontally concatenate images:
+                imageList = [tempList[0], tempList[1]]
+                stackedImage = cv2.hconcat(imageList)
+                imageDimensions = len(stackedImage.shape)
 
-        # Finally, store class code:
-        classCode = classesDictionary[currentClass]
-        tempList.append(classCode)
-        # Into the positive pairs list:
-        positivePairs.append(tempList)
-        processedPairs += 1
+                if imageDimensions < 3:
+                    (height, width) = stackedImage.shape
+                    depth = 1
+                else:
+                    (height, width, depth) = stackedImage.shape
+
+                # Get image type:
+                imageType = stackedImage.dtype
+
+                # Check type and convert to uint8:
+                if imageType != np.dtype("uint8"):
+                    stackedImage = stackedImage * 255.0
+                    stackedImage = stackedImage.clip(0, 255).astype(np.uint8)
+
+                    # Convert channels:
+                    if depth != 3:
+                        stackedImage = cv2.cvtColor(stackedImage, cv2.COLOR_GRAY2BGR)
+
+                # Show image:
+                showImage("Unique Pair", stackedImage)
+
+            # Pair counter goes up:
+            pairCount += 1
 
     # Lemme sort the created pairs cause I wanna check it out...
     pairsCreated = dict(sorted(pairsCreated.items()))
 
     # Done creating positive pairs for this class:
     totalPairs = len(positivePairs)
-    print("[" + currentClass + "]" + " Pairs Created: " + str(processedPairs) + ", Class: " + currentClass,
-          "(" + str(classesDictionary[currentClass]) + ")", " Total: " + str(totalPairs))
+    print("[" + currentClass + "]" + " Pairs Created: " + str(processedPairs) + ", Class: " + currentClass + "(" + str(
+        classesDictionary[currentClass]) + ")", " Total: " + str(totalPairs) + " [Sub-total: " + str(pairCount) + "]")
 
 # Process "Uniques":
 uniquePairs = []
@@ -781,7 +827,7 @@ for currentDataset in ["Train", "Test"]:
 
                 else:
                     # Select another row, via the random index:
-                    if randomIndex < len(choicesArray)-1:
+                    if randomIndex < len(choicesArray) - 1:
                         randomIndex += 1
                     else:
                         randomIndex = 0
@@ -931,7 +977,6 @@ else:
     # Train the net:
     trainingEpochs = netParameters[similarityMetric]["epochs"]
     classWeights = configParameters["classWeights"]
-
 
     # LR reducer:
     reduceLr = ReduceLROnPlateau(monitor="val_loss", factor=0.1, patience=3, mode="auto", min_delta=0.001, cooldown=0,

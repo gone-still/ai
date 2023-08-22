@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.15.3
+# Version     :   0.15.5
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Aug 18, 2023
+# Date:       :   Aug 22, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -187,7 +187,7 @@ cascadeParams = {
 }
 
 # For testing, process just one class:
-targetClasses = ["Uniques"]
+targetClasses = ["Diora Baird"]
 
 # Uniques dir suffix:
 dirSuffix = ""  # " Test"
@@ -324,6 +324,7 @@ for c, currentDirectory in enumerate(classesDirectories):
     # the last sample left off...
     latestFileTime = -1
     lastSavedFileNumber = 0
+    resumeCropping = True
     if directoryExists:
         # Get list of already created croppings:
         existingImages = sorted(Path(writePath).iterdir(), key=os.path.getctime)
@@ -421,9 +422,18 @@ for c, currentDirectory in enumerate(classesDirectories):
 
     # If cropping enabled...
     if resumeCropping:
+        # Get new images:
+        newImages = len(filteredDict)
+
         print("Total skipped images: " + str(skippedImages))
-        print("Total new images: " + str(len(filteredDict)))
+        print("Total new images: " + str(newImages))
         print("Total: " + str(totalImages))
+
+        # Check new images to be processed:
+        if newImages == 0:
+            print("No new images for class: " + str(currentClass) + ", skipping...")
+            continue
+
         # Set the filenames dict to the filtered dict:
         filenamesDict = filteredDict
         # Set new images paths list:
@@ -474,6 +484,10 @@ for c, currentDirectory in enumerate(classesDirectories):
         # Check if original file must be overwritten (should be either sample or pair):
         currentFilenamePrefix = currentFilename.split("-")[0]
 
+        # If rename, set new out name:
+        if renameFiles:
+            currentFilename = filenamesDict[currentFilename]
+
         # Rewrite original files is flag is set or image name is different from processed
         # suffix: either "sample" or "pair"
         if overwritePng or currentFilenamePrefix != fileNameSufix:
@@ -485,16 +499,13 @@ for c, currentDirectory in enumerate(classesDirectories):
 
             # Create out name:
             parentDir = str(imagePaths[j].parent) + "//"
-            if renameFiles:
-                currentFilename = filenamesDict[currentFilename]
-
             filenameString = parentDir + currentFilename + ".png"
 
             # Save png version:
             if savePng:
                 print("[FaceNet Pre-processor] Writing PNG image: " + filenameString)
                 if os.path.exists(filenameString):
-                    print("File: " + filenameString + "Already exists. Renaming new file...")
+                    print("File: " + filenameString + " Already exists. Renaming new file...")
                     filenameString = parentDir + currentFilename + "_new" + ".png"
                 writeImage(filenameString, currentImage)
 
@@ -779,13 +790,39 @@ for c, currentDirectory in enumerate(classesDirectories):
                         # Buffer the char used:
                         lastChar = currentChar
 
-                    # Write the image:
-                    imagePath = writePath + imageName + ".png"
-                    # Save the last file path written:
-                    lastSaved = imagePath
-
                     # Found valid face:
                     foundValidFace = True
+
+                    # Build the image out path:
+                    imagePath = writePath + imageName + ".png"
+
+                    # Check the target is unique!
+                    alreadyExists = os.path.exists(imagePath)
+                    renameCounter = 0
+
+                    while alreadyExists:
+                        print("[!] Target: " + imagePath + " already exists, renaming...")
+
+                        # Set new file name:
+                        renameCounter += 1
+                        # Get number:
+                        filenameStrings = imageName.split("-")
+                        # Number + 1 -> new number
+                        newFilename = int(filenameStrings[1]) + renameCounter
+
+                        # Back into the list, as a string:
+                        filenameStrings[1] = str(newFilename)
+
+                        # Build updated name:
+                        stringBuffer = "-"
+                        stringBuffer = stringBuffer.join(filenameStrings)
+
+                        # Check for uniqueness:
+                        imagePath = writePath + stringBuffer + ".png"
+                        alreadyExists = os.path.exists(imagePath)
+
+                    # Save the last file path written:
+                    lastSaved = imagePath
 
                     print("Writing image: " + imagePath)
 

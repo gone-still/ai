@@ -1,14 +1,16 @@
 # File        :   faceTest.py
-# Version     :   0.11.1
+# Version     :   0.11.5
 # Description :   faceNet test script
 
-# Date:       :   Aug 11, 2023
+# Date:       :   Aug 11,2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
 import cv2
 import math
 import os
+
+import tensorflow as tf
 
 from imutils import paths
 from glob import glob
@@ -109,6 +111,11 @@ writeAll = False
 randomFlip = True
 applyRotation = False
 
+# Print tf info:
+print("[INFO - FaceNet Testing] -- Tensorflow ver:", tf.__version__)
+
+physical_devices = tf.config.list_physical_devices('GPU')
+tf.config.set_visible_devices(physical_devices[0], 'GPU')
 
 # Skip images from this class:
 excludedClasses = ["Uniques"]
