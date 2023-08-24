@@ -1,5 +1,5 @@
 # File        :   faceTest.py
-# Version     :   0.11.5
+# Version     :   0.11.6
 # Description :   faceNet test script
 
 # Date:       :   Aug 11,2023

@@ -1,9 +1,9 @@
 # File        :   faceConfig.py
-# Version     :   0.3.7
+# Version     :   0.3.8
 # Description :   faceNet config script, used during training
 #                 and testing
 
-# Date:       :   Aug 22, 2023
+# Date:       :   Aug 23, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -28,7 +28,7 @@ netParameters = {"euclidean": {"epochs": 30, "boundaries": [680, 3400], "values"
                  # "cosine": {"epochs": 40, "boundaries": [630, 4725], "values": [0.08, 0.008, 0.001]},
                  # "cosine": {"epochs": 35, "boundaries": [12620], "values": [0.008, 0.001]},
                  # "cosine": {"epochs": 30, "boundaries": [6280], "values": [0.08, 0.0009]},
-                 "cosine": {"epochs": 40, "boundaries": [20075], "values": [0.017, 0.0008]},
+                 "cosine": {"epochs": 40, "boundaries": [21708], "values": [0.0173, 0.0008]},
                  # "sum": {"epochs": 35, "boundaries": [2890], "values": [0.001, 0.001 * 01.6]}}1
                  "sum": {"epochs": 30, "boundaries": [680, 1700], "values": [0.075, 0.0125, 0.0035]}}
 

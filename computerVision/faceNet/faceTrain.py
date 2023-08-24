@@ -1,8 +1,8 @@
 # File        :   faceTrain.py
-# Version     :   0.9.15
+# Version     :   0.9.16
 # Description :   faceNet training script
 
-# Date:       :   Aug 22, 2023
+# Date:       :   Aug 23, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -191,7 +191,7 @@ includeUniques = True
 # Display unique pairs?
 displayUniques = False
 # How many unique pairs must be included:
-totalUniques = 3252
+totalUniques = 3400
 
 # Skip images from this class:
 excludedClasses = ["Uniques"]
