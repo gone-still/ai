@@ -1,9 +1,9 @@
 # File        :   faceConfig.py
-# Version     :   0.3.7
+# Version     :   0.3.8
 # Description :   faceNet config script, used during training
 #                 and testing
 
-# Date:       :   Aug 22, 2023
+# Date:       :   Aug 23, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
