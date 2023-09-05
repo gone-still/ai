@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.15.5
+# Version     :   0.16.0
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Aug 22, 2023
+# Date:       :   Sept 04, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -187,7 +187,7 @@ cascadeParams = {
 }
 
 # For testing, process just one class:
-targetClasses = ["Diora Baird"]
+targetClasses = ["Uniques"]
 
 # Uniques dir suffix:
 dirSuffix = ""  # " Test"
@@ -212,11 +212,11 @@ resumeCropping = True
 # Detected face filters:
 testVariance = False
 bypassEyesTest = False
-manualFilter = False
+manualFilter = True
 rotateCrop = True
 
 # Show cropped face when no eyes are detected?
-displayFilter = True
+displayFilter = False
 
 # Write cropped face to output dir?
 writeCropped = True
@@ -441,6 +441,20 @@ for c, currentDirectory in enumerate(classesDirectories):
         # Set new total images count:
         totalImages = len(imagePaths)
         print("First image: " + str(imagePaths[0]))
+
+        # Sanity check - Check the first dict entry for valid
+        # starting pair:
+        # Get latest file name (without extension):
+        latestFilename = imagePaths[0].stem
+        # Look for new name on dictionary:
+        firstOutname = filenamesDict[latestFilename]
+        # Get last char from new name:
+        lastChar = firstOutname.split("-")[-1]
+        # Must start with an "A", if not, somebody likely fucked up the images
+        # order...
+        if lastChar != "A":
+            print("Latest file: " + str(lastChar) + " New out name: " + str(firstOutname))
+            raise "First new image name is not first image in pair!"
 
     currentClass = classesImages[c]
     print("[FaceNet Pre-processor] Class: " + currentClass + " Samples: " + str(totalImages))
@@ -717,6 +731,10 @@ for c, currentDirectory in enumerate(classesDirectories):
 
             # Show detected eyes on input:
             imageOk = True
+            # If no manual eyes filter is performed, just
+            # Ok the image by default...
+            if not displayFilter:
+                totalEyes = 2
             if displayFilter and (displayImages or totalEyes == 0):
                 continueCondition = (manualFilter or (not bypassEyesTest and totalEyes == 0))
                 windowName = "Eyes Filter"
