@@ -51,7 +51,7 @@ samplesPerClass = 1000
 # Negative class:
 negativeSamples = np.random.multivariate_normal(
     mean=[0, 3],  # Mean located on (feature1, feature2)
-    cov=[[1, 0.5], [0.5, 1]],  # Ovali-like distribution
+    cov=[[1, 0.5], [0.5, 1]],  # Oval-like distribution
     size=samplesPerClass
 )
 # Positive class:
