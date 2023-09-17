@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.16.0
+# Version     :   0.17.0
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Sept 04, 2023
+# Date:       :   Sept 16, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -28,6 +28,7 @@ def readImage(imagePath):
     inputImage = cv2.imread(imagePath)
     # Checks if image was successfully loaded:
     if inputImage is None:
+        print("Image Path: ", imagePath)
         raise TypeError("readImage>> Error: Could not load Input image.")
 
     return inputImage
@@ -216,7 +217,7 @@ manualFilter = True
 rotateCrop = True
 
 # Show cropped face when no eyes are detected?
-displayFilter = False
+displayFilter = True
 
 # Write cropped face to output dir?
 writeCropped = True
@@ -442,19 +443,25 @@ for c, currentDirectory in enumerate(classesDirectories):
         totalImages = len(imagePaths)
         print("First image: " + str(imagePaths[0]))
 
-        # Sanity check - Check the first dict entry for valid
-        # starting pair:
-        # Get latest file name (without extension):
-        latestFilename = imagePaths[0].stem
-        # Look for new name on dictionary:
-        firstOutname = filenamesDict[latestFilename]
-        # Get last char from new name:
-        lastChar = firstOutname.split("-")[-1]
-        # Must start with an "A", if not, somebody likely fucked up the images
-        # order...
-        if lastChar != "A":
-            print("Latest file: " + str(lastChar) + " New out name: " + str(firstOutname))
-            raise "First new image name is not first image in pair!"
+        if currentClass == "Uniques":
+
+            # Sanity check for "Uniques"- Check the total new images added (must be even)
+            # and check first dict entry for valid starting pair:
+            if newImages % 2 != 0:
+                print("Total new images: ", newImages)
+                raise ValueError("New images added do not seem to be paired.")
+
+            # Get latest file name (without extension):
+            latestFilename = imagePaths[0].stem
+            # Look for new name on dictionary:
+            firstOutname = filenamesDict[latestFilename]
+            # Get last char from new name:
+            lastChar = firstOutname.split("-")[-1]
+            # Must start with an "A", if not, somebody (I) likely fucked up the image
+            # order...
+            if lastChar != "A":
+                print("Latest file: " + str(lastChar) + " New out name: " + str(firstOutname))
+                raise "First new image name is not first image in pair!"
 
     currentClass = classesImages[c]
     print("[FaceNet Pre-processor] Class: " + currentClass + " Samples: " + str(totalImages))
