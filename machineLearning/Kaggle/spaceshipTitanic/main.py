@@ -32,132 +32,14 @@ def processAge(inputDataset, ageBins, binLabels):
     return labeledAge
 
 
-# # One-hot encodes feature 0 and 2 (categorical -> Deck, Side) and
-# # Adds Imputes and Scales feature 1 (numerical -> Cabin Number)
-# def processCabinFeature(dataframe):
-#     # Dataframe shallow copy:
-#     outDataframe = dataframe
-#     # Encoders list:
-#     cabinEncoders = []
-#     # For the three sub-features created before:
-#     for i in range(3):
-#         if i != 1:
-#             # Change NaNs for "NA-Cabin" + str(i)
-#             replacementString = "NA-Cabin-" + str(i)
-#             outDataframe[[i]] = replaceFeatureValue(outDataframe[[i]], np.NaN, replacementString)
-#
-#             # Create encoder object and apply it to the dataframe:
-#             currentEncoder = OneHotEncoder()
-#             currentEncoded = currentEncoder.fit_transform(outDataframe[[i]])
-#             currentEncoded = currentEncoded.toarray()
-#
-#             # Check out categories:
-#             print(currentEncoder.categories_)
-#
-#             # Attach/append to outDataframe:
-#             outDataframe[currentEncoder.categories_[0]] = currentEncoded
-#             # Append to encoders list:
-#             cabinEncoders.append((currentEncoder, "Encoder: " + str(i)))
-#         else:
-#             # Impute missing values with median:
-#             tempFeature = outDataframe[[i]]
-#             currentImputer = SimpleImputer(missing_values=np.NaN, strategy="median")
-#
-#             # Fit + transform transformer:
-#             tempFeature = currentImputer.fit_transform(tempFeature)
-#
-#             # Scale feature:
-#             currentScaler = StandardScaler()
-#             tempFeature = currentScaler.fit_transform(tempFeature)
-#
-#             # Attach/append to outDataframe:
-#             outDataframe["CabinNum"] = tempFeature
-#
-#             # Append to encoders list:
-#             cabinEncoders.append((currentImputer, "Imputer: " + str(i)))
-#             cabinEncoders.append((currentScaler, "Scaler: " + str(i)))
-#
-#     # Produce the final dataset slicing the temp dataset.
-#     # Slice from the new columns to the ends, include all rows:
-#     outDataframe = outDataframe.iloc[:, 3:]
-#
-#     # Return the list of encoders + outDataframe:
-#     return cabinEncoders, outDataframe
-
-
-# # Pre-processes numerical features:
-# def processNumericalFeatures(inputDataFrame, bins=5):
-#     outParameters = {}
-#     # Slice numerical features:
-#     numericalFeatures = inputDataFrame.loc[:, "RoomService":"VRDeck"]
-#     featureNames = numericalFeatures.columns.values.tolist()
-#
-#     currentImputer = SimpleImputer(missing_values=np.NaN, strategy="mean")
-#
-#     # Fit + transform transformer:
-#     numericalFeatures = currentImputer.fit_transform(numericalFeatures)
-#
-#     # isolation_forest = IsolationForest(random_state=42)
-#     # outlier_pred = isolation_forest.fit_predict(numericalFeatures)
-#
-#     # Convert array to data frame:
-#     numericalFeatures = pd.DataFrame(data=numericalFeatures, columns=featureNames)
-#
-#     # numericalFeatures2 = numericalFeatures.iloc[outlier_pred == 1]
-#
-#     # binLabels = ["No Billed", "Low Billed", "Mid Billed", "High Billed"]
-#     binLabels = list(range(bins))
-#
-#     cleanedOutliers = pd.DataFrame()
-#
-#     for currentFeature in featureNames:
-#         # Get Interquartile Range between Q1 and Q3:
-#         Q1 = numericalFeatures[currentFeature].quantile(0.25)
-#         Q3 = numericalFeatures[currentFeature].quantile(0.75)
-#         # Get IQR:
-#         IQR = Q3 - Q1
-#         # Compute lower and higher thresholds:
-#         whisker_width = 1.5
-#         lowerWhisker = Q1 - (whisker_width * IQR)
-#         upperWhisker = Q3 + (whisker_width * IQR)
-#
-#         # Replace all the values that are below the 25th percentile and above the 75th percentile of
-#         # the current feature:
-#         cleanedOutliers[currentFeature] = np.where(numericalFeatures[currentFeature] > upperWhisker, upperWhisker,
-#                                                    np.where(numericalFeatures[currentFeature] < lowerWhisker,
-#                                                             lowerWhisker, numericalFeatures[currentFeature]))
-#
-#         # Segment feature into len(binLabels) bins::
-#         totalBins = len(binLabels)
-#         encodedFeature = pd.cut(cleanedOutliers[currentFeature], bins=totalBins, labels=binLabels)
-#
-#         # Append new feature:
-#         numericalFeatures[currentFeature + "-Bined"] = encodedFeature
-#
-#         # Add to out parameters dict:
-#         if currentFeature not in outParameters:
-#             outParameters[currentFeature] = {}
-#         outParameters[currentFeature]["Thresholds"] = (lowerWhisker, upperWhisker)
-#
-#     # Get the binned features only:
-#     cleanedOutliers = numericalFeatures.loc[:, "RoomService-Bined":"VRDeck-Bined"]
-#
-#     # Scale feature:
-#     currentScaler = StandardScaler()
-#     cleanedOutliers = currentScaler.fit_transform(cleanedOutliers)
-#
-#     outParameters["Scaler"] = currentScaler
-#
-#     cleanedOutliers = pd.DataFrame(data=cleanedOutliers, columns=featureNames)
-#
-#     # Done
-#     return outParameters, cleanedOutliers
-
-
 # Project Path:
 projectPath = "D://dataSets//spaceTitanic//"
 # File Names:
-datasetNames = ["train.csv", "test.csv"]
+datasetNames = ["train", "validation", "test"]
+
+# Dataset file extension:
+fileExtension = ".csv"
+
 # Prediction label:
 predictionLabel = "Transported"
 
@@ -179,14 +61,49 @@ predictionTargets = {}
 # Prepare the dictionary of encoders:
 encodersDictionary = {}
 
+# Prepare the datasets dictionary:
+# train: {"Dataset", "Labels}
+datasets = {"train": {},
+            "validation": {},
+            "test": {}}
+
 for d, datasetName in enumerate(datasetNames):
 
-    # Read the cvs file:
-    currentDataset = pd.read_csv(projectPath + datasetName)
-
-    # Remove extension from dataset name string:
-    datasetName = datasetName[:-4]
     print("Processing Dataset:", datasetName)
+
+    # Select dataset type:
+    if datasetName == "train":
+
+        print("Splitting training + validation datasets...")
+
+        # Read the cvs file:
+        currentDataset = pd.read_csv(projectPath + datasetName + fileExtension)
+
+        # Split the training dataset into train + validation:
+        trainDataset, validationDataset = train_test_split(currentDataset, test_size=0.2, random_state=randomSeed)
+
+        # Store the validation dataset:
+        datasets["validation"]["dataset"] = validationDataset
+
+        # Set the dataset to be processed:
+        currentDataset = trainDataset
+
+    elif datasetName == "validation":
+
+        print("Setting validation dataset")
+        validationDataset = datasets["validation"]["dataset"]
+
+        # Set the dataset to be processed:
+        currentDataset = validationDataset
+
+    else:
+
+        print("Setting test dataset...")
+        # Read the cvs file:
+        testDataset = pd.read_csv(projectPath + datasetName + fileExtension)
+
+        # Set the dataset to be processed:
+        currentDataset = testDataset
 
     # Print dataset shape:
     print(currentDataset.shape)
@@ -207,7 +124,8 @@ for d, datasetName in enumerate(datasetNames):
     featureNames = currentDataset.columns.values.tolist()
 
     # Process predictive feature:
-    if datasetName == "train":
+    if datasetName == "train" or datasetName == "validation":
+
         # Replace "Transported" Feature with 0 (False) or 1 (True):
         print("Setting Predictive Feature...")
         currentDataset[predictionLabel] = replaceFeatureValue(currentDataset[predictionLabel], True, 1)
@@ -221,8 +139,8 @@ for d, datasetName in enumerate(datasetNames):
             drop=True)
         currentDataset = currentDataset.drop(predictionLabel, axis=1)
 
-        # Store predicting column:
-        predictionTargets[datasetName] = predictionTarget
+        # Store predicting labels:
+        datasets[datasetName]["labels"] = predictionTarget
 
         print("Computing Class Distribution...")
 
@@ -279,6 +197,7 @@ for d, datasetName in enumerate(datasetNames):
         print("One-hot encoding feature:", currentFeature)
 
         if datasetName == "train":
+            print(">> Fitting + Transforming: ", currentFeature)
             # Create the encoder object:
             currentEncoder = OneHotEncoder()
             # Fit + transform to feature:
@@ -289,6 +208,7 @@ for d, datasetName in enumerate(datasetNames):
                 encodersDictionary[currentFeature] = currentEncoder
 
         else:
+            print(">> Fitting: ", currentFeature)
             # Create the encoder object:
             currentEncoder = encodersDictionary[currentFeature]
             # Transform the feature:
@@ -326,6 +246,7 @@ for d, datasetName in enumerate(datasetNames):
             tempDataframe[[i]] = replaceFeatureValue(tempDataframe[[i]], np.NaN, featureString)
 
             if datasetName == "train":
+                print(">> Fitting + Transforming: ", featureString)
                 # Create encoder object and apply it to the dataframe:
                 currentEncoder = OneHotEncoder()
                 currentEncoded = currentEncoder.fit_transform(tempDataframe[[i]])
@@ -335,6 +256,7 @@ for d, datasetName in enumerate(datasetNames):
                     encodersDictionary[featureString] = currentEncoder
 
             else:
+                print(">> Fitting: ", featureString)
                 # Get encoder:
                 currentEncoder = encodersDictionary[featureString]
                 # Transform feature:
@@ -355,6 +277,7 @@ for d, datasetName in enumerate(datasetNames):
             tempFeature = tempDataframe[[i]]
 
             if datasetName == "train":
+                print(">> Fitting + Transforming: ", cabinTransformers[0])
                 # Set imputer:
                 currentImputer = SimpleImputer(missing_values=np.NaN, strategy="median")
                 # Fit + transform feature:
@@ -372,7 +295,7 @@ for d, datasetName in enumerate(datasetNames):
                 #     if dictKey not in encodersDictionary:
                 #         encodersDictionary[dictKey] = currentImputer
             else:
-
+                print(">> Fitting: ", cabinTransformers[0])
                 for n in cabinTransformers:
                     transformerName = featureString + n
                     print("Applying transformer: ", transformerName)
@@ -406,6 +329,7 @@ for d, datasetName in enumerate(datasetNames):
 
     # Impute missing values:
     if datasetName == "train":
+        print(">> Fitting + Transforming: ", featureString)
         # Set imputer,
         # Maybe the strategy here could be median or most frequent, despite both values being 0:
         currentImputer = SimpleImputer(missing_values=np.NaN, strategy="mean")
@@ -417,7 +341,7 @@ for d, datasetName in enumerate(datasetNames):
             encodersDictionary[featureString + "-Imputer"] = currentImputer
 
     else:
-
+        print(">> Fitting: ", featureString)
         # Set imputer:
         currentImputer = encodersDictionary[featureString + "-Imputer"]
         # Fit + transform transformer:
@@ -438,7 +362,7 @@ for d, datasetName in enumerate(datasetNames):
     for currentFeature in featureNames:
 
         if datasetName == "train":
-
+            print(">> Fitting + Transforming: ", currentFeature)
             # Get Interquartile Range between Q1 and Q3:
             Q1 = numericalFeatures[currentFeature].quantile(0.25)
             Q3 = numericalFeatures[currentFeature].quantile(0.75)
@@ -456,6 +380,7 @@ for d, datasetName in enumerate(datasetNames):
             encodersDictionary[currentFeature][threshList[1]] = upperWhisker
 
         else:
+            print(">> Fitting: ", currentFeature)
             # Get lower & upper IQR thresholds:
             lowerWhisker = encodersDictionary[currentFeature][threshList[0]]
             upperWhisker = encodersDictionary[currentFeature][threshList[1]]
@@ -481,6 +406,7 @@ for d, datasetName in enumerate(datasetNames):
 
     # Scale features:
     if datasetName == "train":
+        print(">> Fitting + Transforming: ", featureString)
         # Set scaler:
         currentScaler = StandardScaler()
         # Fit + transform:
@@ -491,6 +417,7 @@ for d, datasetName in enumerate(datasetNames):
             encodersDictionary[featureString + "-Scaler"] = currentScaler
 
     else:
+        print(">> Fitting: ", featureString)
         # Set scaler:
         currentScaler = encodersDictionary[featureString + "-Scaler"]
         # Transform:
@@ -502,4 +429,10 @@ for d, datasetName in enumerate(datasetNames):
     # Append/Concat to original dataframe based on left indices:
     preprocessedDataset = preprocessedDataset.join(tempDataframe)
 
+    # Store in dataset dictionary:
+    datasets[datasetName]["dataset"] = preprocessedDataset
+
     print("Finished preprocessing for dataset: ", datasetName)
+
+# Fit the model:
+print("Fitting model...")
