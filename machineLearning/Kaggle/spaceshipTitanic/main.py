@@ -1,3 +1,13 @@
+
+# File        :   spaceshipTitanic.py
+# Version     :   1.0.0
+# Description :   Solution for Kaggle's Spaceship Titanic problem
+#                 (https://www.kaggle.com/competitions/spaceship-titanic)
+
+# Date:       :   Nov 6, 2023
+# Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
+# License     :   MIT
+
 import numpy as np
 import pandas as pd
 import random
@@ -11,6 +21,18 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.ensemble import IsolationForest
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
+
+from sklearn.model_selection import GridSearchCV
+
+from sklearn import metrics
+from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay, precision_score, \
+    recall_score
+from sklearn.metrics import precision_recall_curve
+
+import time
 
 
 # Replaces one "target" value in a column with a
@@ -46,6 +68,7 @@ predictionLabel = "Transported"
 # Script options
 randomSeed = 42
 numericalBins = 5
+runGridSearch = True
 
 # Set console format:
 pd.set_option("display.max_rows", 500)
@@ -436,3 +459,115 @@ for d, datasetName in enumerate(datasetNames):
 
 # Fit the model:
 print("Fitting model...")
+
+# Create the logistic reggresor model:
+logisticReggressor = LogisticRegression(solver="liblinear", C=1.0, random_state=42)
+
+# Fit the model to the training data:
+trainLabels = datasets["train"]["labels"].values.ravel()  # From column to row
+trainFeatures = datasets["train"]["dataset"]
+logisticReggressor.fit(trainFeatures, trainLabels)
+
+# Cross-validation folds:
+cvFolds = 10
+# Cross-validation parallel jobs (1 per core):
+parallelJobs = 5
+
+# Check out the reggressor accuracy using cross-validation:
+print("[INFO] --- Cross-Validating Classifier...")
+reggressorAccuracy = cross_val_score(estimator=logisticReggressor, X=trainFeatures, y=trainLabels, cv=cvFolds,
+                                     n_jobs=parallelJobs, verbose=3)
+
+# Accuracy for each fold:
+print("[INFO] --- Fold Accuracy:")
+print(" ", reggressorAccuracy)
+print("[INFO] --- Mean & Std Dev Fold Accuracy:")
+print(">> Mu: ", np.mean(np.array(reggressorAccuracy)), "Sigma:", np.std(np.array(reggressorAccuracy)))
+
+# Test the Regression Model:
+print("[INFO] --- Testing Classifier...")
+testLabels = datasets["validation"]["labels"].values.ravel()  # From column to row
+testFeatures = datasets["validation"]["dataset"]
+
+predictionProbabilities = logisticReggressor.predict_proba(testFeatures)
+regressorPredictions = logisticReggressor.predict(testFeatures)
+
+regressorScore = logisticReggressor.score(testFeatures, testLabels)
+print(">> Accuracy:", regressorScore)
+
+print("[INFO] --- Per sample accuracy...")
+
+# Real classes counter:
+realClasses = {"0": 0, "1": 0}
+
+# Print the predicted class, real class and probabilities per sample:
+for i in range(len(testFeatures)):
+    # Get sample max probability:
+    sampleProbability = np.max(predictionProbabilities[i])
+    # Get predicted class:
+    sampleClass = np.argmax(predictionProbabilities[i])
+    # Get real class:
+    realClass = testLabels[i]
+    # Into class counter:
+    realClasses[str(realClass)] += 1
+    # Print missmatch:
+    missmatch = ""
+    if realClass != sampleClass:
+        missmatch = " <-"
+    # Print the info:
+    print(" Sample:", i, "Truth:", realClass, "Predicted:", sampleClass,
+          "(Proba: " + "{:.4f}".format(sampleProbability) + ")" + missmatch)
+
+# Get confusion matrix and its plot:
+print("[INFO] --- Plotting CM")
+
+result = confusion_matrix(testLabels, regressorPredictions)  # normalize='pred'
+print(result)
+accuracy = (result[0][0] + result[1][1]) / len(testLabels)
+print(realClasses)
+
+# Compute precision & recall:
+modelPrecision = precision_score(testLabels, regressorPredictions)
+modelRecall = recall_score(testLabels, regressorPredictions)
+# Print the results:
+dateNow = time.strftime("%Y-%m-%d %H:%M")
+print("---------------------------------------------------------- ")
+print("Results Test time: " + dateNow)
+print("Precision: ", modelPrecision)
+print("Recall: ", modelRecall)
+print("---------------------------------------------------------- ")
+print("Test CF:", accuracy)
+print("Validation Accuracy:", regressorScore)
+print("Cross-validation Mean: ", np.mean(np.array(reggressorAccuracy)))
+
+confusionMatrix = confusion_matrix(testLabels, regressorPredictions, labels=logisticReggressor.classes_)
+disp = ConfusionMatrixDisplay(confusion_matrix=confusionMatrix, display_labels=logisticReggressor.classes_)
+disp.plot()
+plt.show()
+
+# Grid search:
+if runGridSearch:
+    # Hyperparameter optimization using Grid Search:
+    print("[INFO] --- Running Grid Search...")
+    parameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 30), "penalty": ["l1", "l2"]}
+    logisticReggressor = LogisticRegression(max_iter=400)
+    logisticReggressorOptimized = GridSearchCV(logisticReggressor, parameters, cv=cvFolds, n_jobs=parallelJobs)
+    logisticReggressorOptimized.fit(trainFeatures, trainLabels)
+
+    # Print hyperparameters & accuracy:
+    print("[INFO] --- Grid Search Best Parameters:")
+    print("", logisticReggressorOptimized.best_params_)
+
+    # Check out the reggressor accuracy using cross-validation:
+    print("[INFO] --- [Post-Grid Search] Cross-Validating Classifier...")
+    reggressorAccuracy = cross_val_score(estimator=logisticReggressorOptimized, X=trainFeatures, y=trainLabels,
+                                         cv=cvFolds,
+                                         n_jobs=parallelJobs, verbose=3)
+
+    # Accuracy for each fold:
+    print("[INFO] --- [Post-Grid Search] Fold Accuracy:")
+    print(" ", reggressorAccuracy)
+    print("[INFO] --- [Post-Grid Search] Mean & Std Dev Fold Accuracy:")
+    print(">> Mu: ", np.mean(np.array(reggressorAccuracy)), "Sigma:", np.std(np.array(reggressorAccuracy)))
+
+    print("Fuck You")
