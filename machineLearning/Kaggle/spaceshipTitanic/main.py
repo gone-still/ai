@@ -1,10 +1,9 @@
-
 # File        :   spaceshipTitanic.py
-# Version     :   1.0.0
+# Version     :   1.1.0
 # Description :   Solution for Kaggle's Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
-# Date:       :   Nov 6, 2023
+# Date:       :   Nov 7, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -22,10 +21,18 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.ensemble import IsolationForest
 
-from sklearn.linear_model import LogisticRegression
+from sklearn import svm
+from sklearn.tree import DecisionTreeClassifier
+
+from sklearn.linear_model import LogisticRegression, SGDClassifier
+
 from sklearn.model_selection import cross_val_score
 
-from sklearn.model_selection import GridSearchCV
+from sklearn.experimental import enable_halving_search_cv
+from sklearn.model_selection import GridSearchCV, StratifiedShuffleSplit, RandomizedSearchCV, HalvingGridSearchCV, \
+    HalvingRandomSearchCV
+
+from sklearn.base import clone
 
 from sklearn import metrics
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay, precision_score, \
@@ -54,6 +61,146 @@ def processAge(inputDataset, ageBins, binLabels):
     return labeledAge
 
 
+# Performs stratified cross-validation:
+def stratifiedCrossValidation(currentModel, trainFeatures, trainLabels, splits=10, randomSeed=42, testSize=0.2,
+                              verbose=False):
+    # Get the stratified partitioned object from dataset:
+    cvFolds = StratifiedShuffleSplit(n_splits=splits, test_size=testSize, random_state=randomSeed)
+    # indices = cvFolds.get_n_splits(trainFeatures, trainLabels)
+
+    # This list stores all fold accuracies:
+    accuracyPerFold = []
+
+    # Loop through the folds, extracting features and labels from the split object:
+    for i, (train_index, test_index) in enumerate(cvFolds.split(trainFeatures, trainLabels)):
+        # Get train fold:
+        foldTrainFeatures = trainFeatures.iloc[train_index, :]
+        foldTrainLabels = trainLabels[train_index]
+        # showClassDistribution(foldTrainLabels)
+
+        # Get test fold:
+        foldTestFeatures = trainFeatures.iloc[test_index, :]
+        foldTestLabels = trainLabels[test_index]
+        # showClassDistribution(foldTestLabels)
+
+        # Clone model:
+        modelClone = clone(currentModel)
+        # Fit:
+        modelClone.fit(foldTrainFeatures, foldTrainLabels)
+        # Get predictions
+        foldPredictions = modelClone.predict(foldTestFeatures)
+        # Get number of correct predictions:
+        correctPredictions = sum(foldPredictions == foldTestLabels)
+        # Get accuracy:
+        foldAccuracy = correctPredictions / len(foldPredictions)
+        if verbose:
+            print("Fold:", i, "Accuracy:", foldAccuracy)
+
+        # Append to list:
+        accuracyPerFold.append(foldAccuracy)
+
+    # Get mean accuracy:
+    meanAccuracy = np.mean(accuracyPerFold)
+    # Get accuracy std dev across all folds:
+    stdDevAccuracy = np.std(accuracyPerFold)
+    print("Mean cross-validation accuracy: ", meanAccuracy, "stdDev: ", stdDevAccuracy)
+    # Done:
+    return accuracyPerFold, meanAccuracy, stdDevAccuracy
+
+
+# Plots a confusion matrix:
+def plotConfusionMatrix(testLabels, model):
+    modelPredictions = model.predict(testFeatures)
+    confusionMatrix = confusion_matrix(testLabels, modelPredictions, labels=model.classes_)
+    disp = ConfusionMatrixDisplay(confusion_matrix=confusionMatrix, display_labels=model.classes_)
+    disp.plot()
+    plt.show()
+
+
+# Get per sample accuracy and returns counter of test (real) labels:
+def perSampleAccuracy(testFeatures, testLabels, currentModel, computeProbas=False):
+    if computeProbas:
+        # Get prediction probabilities:
+        predictionProbabilities = currentModel.predict_proba(testFeatures)
+    else:
+        predictionProbabilities = currentModel.predict(testFeatures)
+
+    # Real classes counter:
+    classesCounter = {"0": 0, "1": 0}
+
+    # Print the predicted class, real class and probabilities per sample:
+    for i in range(len(testFeatures)):
+
+        # Get sample max probability:
+        sampleProbability = np.max(predictionProbabilities[i])
+        # Get predicted class:
+        sampleClass = np.argmax(predictionProbabilities[i])
+        # Get real class:
+        realClass = testLabels[i]
+        # Into class counter:
+        classesCounter[str(realClass)] += 1
+        # Print missmatch:
+        missmatch = ""
+        if realClass != sampleClass:
+            missmatch = " <-"
+        # Print the info:
+        print(" Sample:", i, "Truth:", realClass, "Predicted:", sampleClass,
+              "(Proba: " + "{:.4f}".format(sampleProbability) + ")" + missmatch)
+
+    return classesCounter
+
+
+# Computes and prints results:
+def displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, cvStdDev, cvFolds):
+    # Print the confusion matrix array:
+    modelPredictions = currentModel.predict(testFeatures)
+    cmArray = confusion_matrix(testLabels, modelPredictions)  # normalize='pred'
+    print("Confusion Matrix: ")
+    print(cmArray)
+
+    # Get accuracy from CM:
+    accuracy = (cmArray[0][0] + cmArray[1][1]) / len(testLabels)
+    print("Class labels counters: ")
+    print(realClasses)
+
+    # Compute precision & recall:
+    modelPrecision = precision_score(testLabels, modelPredictions)
+    modelRecall = recall_score(testLabels, modelPredictions)
+
+    # Get model score:
+    modelScore = currentModel.score(testFeatures, testLabels)
+
+    # Print the results:
+    dateNow = time.strftime("%Y-%m-%d %H:%M")
+    print("---------------------------------------------------------- ")
+    print("Results Test time: " + dateNow)
+    print("Precision: ", modelPrecision)
+    print("Recall: ", modelRecall)
+    print("---------------------------------------------------------- ")
+    print("Validation CM Accuracy:", accuracy)
+    print("Validation Accuracy:", modelScore)
+
+    print(">> Cross-validation Mean (" + str(cvFolds) + " Folds): ", "{:.4f}".format(cvMean),
+          "StdDev: ", "{:.4f}".format(cvStdDev))
+
+
+# Shows the distribution of a two-classes dataset:
+def showClassDistribution(classLabels):
+    # Get class distribution:
+    classCounter = Counter(classLabels)
+
+    # Get total entries:
+    totalEntries = len(classLabels)
+
+    # Print the class distribution:
+    for c in classCounter:
+        # Get counter value
+        value = classCounter[c]
+        percent = format(100 * (value / totalEntries), ".2f")
+        # Print distribution:
+        print("Class:", c, "count:", value, "{ " + str(percent) + "%" + " }")
+
+
 # Project Path:
 projectPath = "D://dataSets//spaceTitanic//"
 # File Names:
@@ -67,8 +214,13 @@ predictionLabel = "Transported"
 
 # Script options
 randomSeed = 42
-numericalBins = 5
-runGridSearch = True
+numericalBins = 10
+# runGridSearch = False
+
+# Cross-validation folds:
+cvFolds = 10
+# Cross-validation parallel jobs (1 per core):
+parallelJobs = 5
 
 # Set console format:
 pd.set_option("display.max_rows", 500)
@@ -101,6 +253,11 @@ for d, datasetName in enumerate(datasetNames):
 
         # Read the cvs file:
         currentDataset = pd.read_csv(projectPath + datasetName + fileExtension)
+
+        # labels = replaceFeatureValue(currentDataset[predictionLabel], True, 1)
+        # labels = replaceFeatureValue(labels, False, 0)
+        #
+        # showClassDistribution(labels)
 
         # Split the training dataset into train + validation:
         trainDataset, validationDataset = train_test_split(currentDataset, test_size=0.2, random_state=randomSeed)
@@ -148,7 +305,6 @@ for d, datasetName in enumerate(datasetNames):
 
     # Process predictive feature:
     if datasetName == "train" or datasetName == "validation":
-
         # Replace "Transported" Feature with 0 (False) or 1 (True):
         print("Setting Predictive Feature...")
         currentDataset[predictionLabel] = replaceFeatureValue(currentDataset[predictionLabel], True, 1)
@@ -167,19 +323,7 @@ for d, datasetName in enumerate(datasetNames):
 
         print("Computing Class Distribution...")
 
-        # Get class distribution:
-        classCounter = Counter(classLabels)
-
-        # Get total entries:
-        totalEntries = len(predictionTarget)
-
-        # Print the class distribution:
-        for c in classCounter:
-            # Get counter value
-            value = classCounter[c]
-            percent = format(100 * (value / totalEntries), ".2f")
-            # Print distribution:
-            print("Class:", c, "count:", value, "{ " + str(percent) + "%" + " }")
+        showClassDistribution(classLabels)
 
     # NaN Replacement of the following features:
     targetFeatures = ["HomePlanet", "CryoSleep", "Destination", "VIP"]
@@ -355,7 +499,7 @@ for d, datasetName in enumerate(datasetNames):
         print(">> Fitting + Transforming: ", featureString)
         # Set imputer,
         # Maybe the strategy here could be median or most frequent, despite both values being 0:
-        currentImputer = SimpleImputer(missing_values=np.NaN, strategy="mean")
+        currentImputer = SimpleImputer(missing_values=np.NaN, strategy="most_frequent")
         # Fit + transform transformer:
         numericalFeatures = currentImputer.fit_transform(numericalFeatures)
 
@@ -386,9 +530,9 @@ for d, datasetName in enumerate(datasetNames):
 
         if datasetName == "train":
             print(">> Fitting + Transforming: ", currentFeature)
-            # Get Interquartile Range between Q1 and Q3:
-            Q1 = numericalFeatures[currentFeature].quantile(0.25)
-            Q3 = numericalFeatures[currentFeature].quantile(0.75)
+            # Get Inter-quartile Range between Q1 and Q3:
+            Q1 = numericalFeatures[currentFeature].quantile(0.26)
+            Q3 = numericalFeatures[currentFeature].quantile(0.76)
 
             # Get IQR:
             IQR = Q3 - Q1
@@ -458,116 +602,123 @@ for d, datasetName in enumerate(datasetNames):
     print("Finished preprocessing for dataset: ", datasetName)
 
 # Fit the model:
-print("Fitting model...")
+modelType = "DecisionTree"
+print("Fitting model: ", modelType)
 
-# Create the logistic reggresor model:
-logisticReggressor = LogisticRegression(solver="liblinear", C=1.0, random_state=42)
+runGridSearch = True
+
+# Dictionary of grid parameters:
+logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 40), "penalty": ["l1", "l2"]}
+# svmParameters = {"kernel": ["rbf"], "C": np.logspace(-2, 10, 2), "gamma": np.logspace(-9, 3, 3)}
+svmParameters = {"kernel": ["rbf"], "C": np.logspace(-1.0, 0.5, 5), "gamma": [0.001, 0.01, 0.1, 1.0, 10.0]}
+
+modelDictionary = {"SVM":  # svm.SVC(C=0.8, kernel="rbf")
+                       {"Model": svm.SVC(C=0.8, kernel="rbf"),
+                        "Params": svmParameters},
+                   "LogisticRegression":
+                       {"Model": LogisticRegression(solver="liblinear", C=1.0, random_state=42),
+                        "Params": logisticParameters},
+                   "SGD":  # SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015)
+                       {"Model": SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015),
+                        "Params": []},
+                   "DecisionTree":
+                       {"Model": DecisionTreeClassifier(criterion="gini", max_depth=4, random_state=69,
+                                                        max_features=30, max_leaf_nodes=25,
+                                                        min_samples_split=2, min_samples_leaf=5,
+                                                        splitter="best"),
+                        "Params": []}
+                   }
+
+# Create the classifier model:
+currentModel = modelDictionary[modelType]["Model"]
 
 # Fit the model to the training data:
 trainLabels = datasets["train"]["labels"].values.ravel()  # From column to row
 trainFeatures = datasets["train"]["dataset"]
-logisticReggressor.fit(trainFeatures, trainLabels)
+currentModel.fit(trainFeatures, trainLabels)
 
-# Cross-validation folds:
-cvFolds = 10
-# Cross-validation parallel jobs (1 per core):
-parallelJobs = 5
-
-# Check out the reggressor accuracy using cross-validation:
+# Check out the classifier's accuracy using cross-validation:
 print("[INFO] --- Cross-Validating Classifier...")
-reggressorAccuracy = cross_val_score(estimator=logisticReggressor, X=trainFeatures, y=trainLabels, cv=cvFolds,
-                                     n_jobs=parallelJobs, verbose=3)
+modelAccuracy = cross_val_score(estimator=currentModel, X=trainFeatures, y=trainLabels, cv=cvFolds,
+                                n_jobs=parallelJobs, verbose=3)
 
 # Accuracy for each fold:
 print("[INFO] --- Fold Accuracy:")
-print(" ", reggressorAccuracy)
+print(" ", modelAccuracy)
+
 print("[INFO] --- Mean & Std Dev Fold Accuracy:")
-print(">> Mu: ", np.mean(np.array(reggressorAccuracy)), "Sigma:", np.std(np.array(reggressorAccuracy)))
+cvMean = np.mean(np.array(modelAccuracy))
+cvStdDev = np.std(np.array(modelAccuracy))
+
+print(">> Mu: ", cvMean, "Sigma:", cvStdDev)
+
+# Stratified cross-validation:
+print("[INFO] --- Performing Stratified Cross-Validation...")
+stratifiedCrossValidation(currentModel, trainFeatures, trainLabels, splits=10, randomSeed=randomSeed, testSize=0.2,
+                          verbose=False)
 
 # Test the Regression Model:
 print("[INFO] --- Testing Classifier...")
 testLabels = datasets["validation"]["labels"].values.ravel()  # From column to row
 testFeatures = datasets["validation"]["dataset"]
 
-predictionProbabilities = logisticReggressor.predict_proba(testFeatures)
-regressorPredictions = logisticReggressor.predict(testFeatures)
+modelScore = currentModel.score(testFeatures, testLabels)
+print(">> Accuracy:", modelScore)
 
-regressorScore = logisticReggressor.score(testFeatures, testLabels)
-print(">> Accuracy:", regressorScore)
+print("[INFO] --- Computing Per sample accuracy...")
 
-print("[INFO] --- Per sample accuracy...")
+# Get per sample accuracy:
+realClasses = perSampleAccuracy(testFeatures, testLabels, currentModel)
 
-# Real classes counter:
-realClasses = {"0": 0, "1": 0}
+# Get and display results:
+displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, cvStdDev, 10)
 
-# Print the predicted class, real class and probabilities per sample:
-for i in range(len(testFeatures)):
-    # Get sample max probability:
-    sampleProbability = np.max(predictionProbabilities[i])
-    # Get predicted class:
-    sampleClass = np.argmax(predictionProbabilities[i])
-    # Get real class:
-    realClass = testLabels[i]
-    # Into class counter:
-    realClasses[str(realClass)] += 1
-    # Print missmatch:
-    missmatch = ""
-    if realClass != sampleClass:
-        missmatch = " <-"
-    # Print the info:
-    print(" Sample:", i, "Truth:", realClass, "Predicted:", sampleClass,
-          "(Proba: " + "{:.4f}".format(sampleProbability) + ")" + missmatch)
+# Plot confusion matrix:
+plotConfusionMatrix(testLabels, currentModel)
 
-# Get confusion matrix and its plot:
-print("[INFO] --- Plotting CM")
-
-result = confusion_matrix(testLabels, regressorPredictions)  # normalize='pred'
-print(result)
-accuracy = (result[0][0] + result[1][1]) / len(testLabels)
-print(realClasses)
-
-# Compute precision & recall:
-modelPrecision = precision_score(testLabels, regressorPredictions)
-modelRecall = recall_score(testLabels, regressorPredictions)
-# Print the results:
-dateNow = time.strftime("%Y-%m-%d %H:%M")
-print("---------------------------------------------------------- ")
-print("Results Test time: " + dateNow)
-print("Precision: ", modelPrecision)
-print("Recall: ", modelRecall)
-print("---------------------------------------------------------- ")
-print("Test CF:", accuracy)
-print("Validation Accuracy:", regressorScore)
-print("Cross-validation Mean: ", np.mean(np.array(reggressorAccuracy)))
-
-confusionMatrix = confusion_matrix(testLabels, regressorPredictions, labels=logisticReggressor.classes_)
-disp = ConfusionMatrixDisplay(confusion_matrix=confusionMatrix, display_labels=logisticReggressor.classes_)
-disp.plot()
-plt.show()
-
+# Check parameters for grid search:
+gridParameters = modelDictionary[modelType]["Params"]
 # Grid search:
-if runGridSearch:
+if runGridSearch and gridParameters:
     # Hyperparameter optimization using Grid Search:
-    print("[INFO] --- Running Grid Search...")
-    parameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 30), "penalty": ["l1", "l2"]}
-    logisticReggressor = LogisticRegression(max_iter=400)
-    logisticReggressorOptimized = GridSearchCV(logisticReggressor, parameters, cv=cvFolds, n_jobs=parallelJobs)
-    logisticReggressorOptimized.fit(trainFeatures, trainLabels)
+    print("[INFO] --- Running Grid Search for: ", modelType)
+
+    optimizedModels = {"SVM": svm.SVC(), "LogisticRegression": LogisticRegression(max_iter=400)}
+
+    # currentModel = LogisticRegression(max_iter=400)
+    currentModel = optimizedModels[modelType]
+
+    currentModelOptimized = RandomizedSearchCV(currentModel, gridParameters, cv=3,
+                                               n_jobs=parallelJobs)
+    currentModelOptimized.fit(trainFeatures, trainLabels)
 
     # Print hyperparameters & accuracy:
     print("[INFO] --- Grid Search Best Parameters:")
-    print("", logisticReggressorOptimized.best_params_)
+    print("", currentModelOptimized.best_params_)
 
     # Check out the reggressor accuracy using cross-validation:
     print("[INFO] --- [Post-Grid Search] Cross-Validating Classifier...")
-    reggressorAccuracy = cross_val_score(estimator=logisticReggressorOptimized, X=trainFeatures, y=trainLabels,
-                                         cv=cvFolds,
-                                         n_jobs=parallelJobs, verbose=3)
+    modelAccuracy = cross_val_score(estimator=currentModelOptimized, X=trainFeatures, y=trainLabels,
+                                    cv=cvFolds,
+                                    n_jobs=parallelJobs, verbose=3)
 
     # Accuracy for each fold:
     print("[INFO] --- [Post-Grid Search] Fold Accuracy:")
-    print(" ", reggressorAccuracy)
+    print(" ", modelAccuracy)
+
     print("[INFO] --- [Post-Grid Search] Mean & Std Dev Fold Accuracy:")
-    print(">> Mu: ", np.mean(np.array(reggressorAccuracy)), "Sigma:", np.std(np.array(reggressorAccuracy)))
+    cvMean = np.mean(np.array(modelAccuracy))
+    cvStdDev = np.std(np.array(modelAccuracy))
+
+    print(">> Mu: ", cvMean, "Sigma:", cvStdDev)
+
+    # Get per sample accuracy:
+    realClasses = perSampleAccuracy(testFeatures, testLabels, currentModelOptimized)
+
+    # Get and display results:
+    displayResults(currentModelOptimized, testFeatures, testLabels, realClasses, cvMean, cvStdDev, 3)
+
+    # Plot confusion matrix:
+    plotConfusionMatrix(testLabels, currentModelOptimized)
 
     print("Fuck You")
