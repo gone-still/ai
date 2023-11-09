@@ -1,9 +1,9 @@
 # File        :   spaceshipTitanic.py
-# Version     :   1.1.0
+# Version     :   1.1.2
 # Description :   Solution for Kaggle's Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
-# Date:       :   Nov 7, 2023
+# Date:       :   Nov 8, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -26,6 +26,8 @@ from sklearn.tree import DecisionTreeClassifier
 
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 
+from sklearn.ensemble import RandomForestClassifier
+
 from sklearn.model_selection import cross_val_score
 
 from sklearn.experimental import enable_halving_search_cv
@@ -36,8 +38,7 @@ from sklearn.base import clone
 
 from sklearn import metrics
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay, precision_score, \
-    recall_score
-from sklearn.metrics import precision_recall_curve
+    recall_score, precision_recall_curve, f1_score
 
 import time
 
@@ -167,6 +168,9 @@ def displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, 
     modelPrecision = precision_score(testLabels, modelPredictions)
     modelRecall = recall_score(testLabels, modelPredictions)
 
+    # Compute F1 score:
+    f1Score = f1_score(testLabels, modelPredictions)
+
     # Get model score:
     modelScore = currentModel.score(testFeatures, testLabels)
 
@@ -176,6 +180,7 @@ def displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, 
     print("Results Test time: " + dateNow)
     print("Precision: ", modelPrecision)
     print("Recall: ", modelRecall)
+    print("F1: ", f1Score)
     print("---------------------------------------------------------- ")
     print("Validation CM Accuracy:", accuracy)
     print("Validation Accuracy:", modelScore)
@@ -602,10 +607,11 @@ for d, datasetName in enumerate(datasetNames):
     print("Finished preprocessing for dataset: ", datasetName)
 
 # Fit the model:
-modelType = "DecisionTree"
+modelType = "RandomForest"
 print("Fitting model: ", modelType)
 
 runGridSearch = True
+showFeatureImportance = True
 
 # Dictionary of grid parameters:
 logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 40), "penalty": ["l1", "l2"]}
@@ -626,6 +632,12 @@ modelDictionary = {"SVM":  # svm.SVC(C=0.8, kernel="rbf")
                                                         max_features=30, max_leaf_nodes=25,
                                                         min_samples_split=2, min_samples_leaf=5,
                                                         splitter="best"),
+                        "Params": []},
+                   "RandomForest":
+                       {"Model": RandomForestClassifier(n_estimators=20, max_depth=10, random_state=69,
+                                                        max_features=10, max_leaf_nodes=30,
+                                                        min_samples_split=20,
+                                                        ),
                         "Params": []}
                    }
 
@@ -636,6 +648,72 @@ currentModel = modelDictionary[modelType]["Model"]
 trainLabels = datasets["train"]["labels"].values.ravel()  # From column to row
 trainFeatures = datasets["train"]["dataset"]
 currentModel.fit(trainFeatures, trainLabels)
+
+# If Model is Random Forest, show feature importance:
+if modelType == "RandomForest":
+
+    # Store the features here:
+    featureList = []
+    for score, name in zip(currentModel.feature_importances_, trainFeatures.columns):
+        # Store the score along its feature name:
+        featureList.append((score, name))
+
+    # Sort from largest to smallest according to first tuple element:
+    featureList.sort(key=lambda tup: tup[0], reverse=True)
+
+    # Create lists for plotting:
+    totalFeatures = len(featureList)
+    scoreSorted = []
+    featuresSorted = [None] * totalFeatures
+
+    # Set score total threshold:
+    maxSCoreThreshold = 0.95
+    leastImportantFeatures = []
+    mostImportantFeatures = []
+
+    # Loop thru the features:
+    scoreAccumulator = 0.0
+    for f, currentTuple in enumerate(featureList):
+        # Get current tuple:
+        currentScore, currentFeature = currentTuple
+
+        # Reverse-store score and feature name:
+        # scoreSorted.append(currentScore)
+        featuresSorted[(totalFeatures - 1) - f] = currentFeature
+
+        # Accumulate score:
+        if scoreAccumulator < maxSCoreThreshold:
+            # Store most important feature:
+            mostImportantFeatures.append(currentScore)
+            scoreAccumulator += currentScore
+        else:
+            # Store least important features:
+            leastImportantFeatures.append(currentScore)
+
+        # Print info:
+        print("{:.4f}".format(currentScore), "(" + "{:.4f}".format(scoreAccumulator * 100) + "%)", currentFeature)
+
+    # Reverse lists:
+    mostImportantFeatures.sort(reverse=False)
+    leastImportantFeatures.sort(reverse=False)
+
+    # Plot the features:
+    plt.title("Feature importance", fontsize=10)
+    plt.xlabel("Importance", fontsize=13)
+
+    # Get lists of vertical units:
+    lowRange = list(range(len(leastImportantFeatures)))
+    highRange = list(range(len(mostImportantFeatures)))
+    # Add offset to the bars:
+    highRange = [x + len(leastImportantFeatures) for x in highRange]
+
+    # Plot two groups of horizontal bars -> least important (red), most important (green)
+    plt.barh(lowRange, leastImportantFeatures, color="red", edgecolor='red')
+    plt.barh(highRange, mostImportantFeatures, color="green", edgecolor='green')
+    # Add feature names to the vertical axis:
+    plt.yticks(range(len(featuresSorted)), featuresSorted)
+    # disp.plot()
+    plt.show()
 
 # Check out the classifier's accuracy using cross-validation:
 print("[INFO] --- Cross-Validating Classifier...")
