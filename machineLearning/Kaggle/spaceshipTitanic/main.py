@@ -1,9 +1,9 @@
 # File        :   spaceshipTitanic.py
-# Version     :   1.1.2
+# Version     :   1.1.5
 # Description :   Solution for Kaggle's Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
-# Date:       :   Nov 8, 2023
+# Date:       :   Nov 12, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -26,7 +26,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 
 from sklearn.model_selection import cross_val_score
 
@@ -63,10 +63,10 @@ def processAge(inputDataset, ageBins, binLabels):
 
 
 # Performs stratified cross-validation:
-def stratifiedCrossValidation(currentModel, trainFeatures, trainLabels, splits=10, randomSeed=42, testSize=0.2,
+def stratifiedCrossValidation(currentModel, trainFeatures, trainLabels, randomState, splits=10, testSize=0.2,
                               verbose=False):
     # Get the stratified partitioned object from dataset:
-    cvFolds = StratifiedShuffleSplit(n_splits=splits, test_size=testSize, random_state=randomSeed)
+    cvFolds = StratifiedShuffleSplit(n_splits=splits, test_size=testSize, random_state=randomState)
     # indices = cvFolds.get_n_splits(trainFeatures, trainLabels)
 
     # This list stores all fold accuracies:
@@ -129,11 +129,16 @@ def perSampleAccuracy(testFeatures, testLabels, currentModel, computeProbas=Fals
     # Real classes counter:
     classesCounter = {"0": 0, "1": 0}
 
+    # List of accuracies per sample:
+    sampleAccuracies = []
+
     # Print the predicted class, real class and probabilities per sample:
     for i in range(len(testFeatures)):
 
         # Get sample max probability:
         sampleProbability = np.max(predictionProbabilities[i])
+        # Into the list:
+        sampleAccuracies.append(sampleProbability)
         # Get predicted class:
         sampleClass = np.argmax(predictionProbabilities[i])
         # Get real class:
@@ -206,8 +211,92 @@ def showClassDistribution(classLabels):
         print("Class:", c, "count:", value, "{ " + str(percent) + "%" + " }")
 
 
+# Shows most and least important features if current model is Random Forest:
+def showFeatures(currentModel, trainFeatures, maxSCoreThreshold=0.95):
+    # Store the features here:
+    featureList = []
+    for score, name in zip(currentModel.feature_importances_, trainFeatures.columns):
+        # Store the score along its feature name:
+        featureList.append((score, name))
+
+    # Sort from largest to smallest according to first tuple element:
+    featureList.sort(key=lambda tup: tup[0], reverse=True)
+
+    # Create lists for plotting:
+    totalFeatures = len(featureList)
+    # scoreSorted = []
+    featuresSorted = [None] * totalFeatures
+
+    # Set score total threshold:
+    leastImportantFeatures = []
+    mostImportantFeatures = []
+
+    # Loop thru the features:
+    scoreAccumulator = 0.0
+    for f, currentTuple in enumerate(featureList):
+        # Get current tuple:
+        currentScore, currentFeature = currentTuple
+
+        # Reverse-store score and feature name:
+        # scoreSorted.append(currentScore)
+        featuresSorted[(totalFeatures - 1) - f] = currentFeature
+
+        # Accumulate score:
+        if scoreAccumulator < maxSCoreThreshold:
+            # Store most important feature:
+            mostImportantFeatures.append(currentTuple)
+            scoreAccumulator += currentScore
+        else:
+            # Store least important features:
+            leastImportantFeatures.append(currentTuple)
+
+        # Print info:
+        print("{:.4f}".format(currentScore), "(" + "{:.4f}".format(scoreAccumulator * 100) + "%)", currentFeature)
+
+    # Print the least important features:
+    filterFeatures = []
+    for currentTuple in leastImportantFeatures:
+        # Get current tuple:
+        currentScore, currentFeature = currentTuple
+        filterFeatures.append(currentFeature)
+
+    print("Least important features: ")
+    print(filterFeatures)
+
+    # Reverse lists using score:
+    mostImportantFeatures.sort(key=lambda tup: tup[0], reverse=False)
+    leastImportantFeatures.sort(key=lambda tup: tup[0], reverse=False)
+
+    # Plot the features:
+    plt.title("Feature importance", fontsize=10)
+    plt.xlabel("Importance", fontsize=13)
+
+    # Get lists of vertical units:
+    lowRange = list(range(len(leastImportantFeatures)))
+    highRange = list(range(len(mostImportantFeatures)))
+    # Add offset to the bars:
+    highRange = [x + len(leastImportantFeatures) for x in highRange]
+
+    # Get just scores (first element of tuple) from feature lists:
+    lowScores = [j[0] for j in leastImportantFeatures]
+    highScores = [j[0] for j in mostImportantFeatures]
+
+    # Plot two groups of horizontal bars -> least important (red), most important (green)
+    plt.barh(lowRange, lowScores, color="red", edgecolor='red')
+    plt.barh(highRange, highScores, color="green", edgecolor='green')
+
+    # Add feature names to the vertical axis:
+    plt.yticks(range(len(featuresSorted)), featuresSorted)
+    plt.show()
+
+
 # Project Path:
 projectPath = "D://dataSets//spaceTitanic//"
+# Output Path:
+outFilename = projectPath + "outPredictions.csv"
+# Write final CSV?
+writeOutfile = True
+
 # File Names:
 datasetNames = ["train", "validation", "test"]
 
@@ -219,11 +308,29 @@ predictionLabel = "Transported"
 
 # Script options
 randomSeed = 42
-numericalBins = 10
+rng = np.random.RandomState(randomSeed)
+
+# Model type:
+modelType = "VotingClassifier"
+
+numericalBins = 5
 # runGridSearch = False
+
+# Feature Selection:
+showFeatureImportance = False
+featureScoreThreshold = 0.98
+# featuresList = ['C', 'Infant', 'Child', 'NA-Age', '55 Cancri e', 'NA-CryoSleep', 'B', 'TRAPPIST-1e', 'Young Adult',
+#                 'Adult', 'D', 'PSO J318.5-22', 'VIP-FALSE', 'Senior', 'NA-Cabin-2', 'NA-VIP', 'NA-HomePlanet',
+#                 'NA-Destination', 'NA-Cabin-0', 'VIP-TRUE', 'Teenager', 'A', 'T']
+
+# The list of features to drop:
+featuresList = ['NA-Destination', 'NA-Cabin-0', 'VIP-TRUE', 'Teenager', 'A', 'T']
+filterFeatures = False
 
 # Cross-validation folds:
 cvFolds = 10
+
+runGridSearch = False
 # Cross-validation parallel jobs (1 per core):
 parallelJobs = 5
 
@@ -247,6 +354,9 @@ datasets = {"train": {},
             "validation": {},
             "test": {}}
 
+# Store here the test passenger columns for final CSV:
+passengerList = pd.DataFrame()
+
 for d, datasetName in enumerate(datasetNames):
 
     print("Processing Dataset:", datasetName)
@@ -265,7 +375,7 @@ for d, datasetName in enumerate(datasetNames):
         # showClassDistribution(labels)
 
         # Split the training dataset into train + validation:
-        trainDataset, validationDataset = train_test_split(currentDataset, test_size=0.2, random_state=randomSeed)
+        trainDataset, validationDataset = train_test_split(currentDataset, test_size=0.2, random_state=rng)
 
         # Store the validation dataset:
         datasets["validation"]["dataset"] = validationDataset
@@ -302,7 +412,12 @@ for d, datasetName in enumerate(datasetNames):
     # Drop PassengerId and Name columns:
     dropFeatures = ["PassengerId", "Name"]
     for currentFeature in dropFeatures:
-        print("Dropping column: ", currentFeature)
+        if currentFeature == "PassengerId" and datasetName == "test":
+            print("Storing: ", currentFeature)
+            # Store passenger list for final predictions
+            passengerList = pd.DataFrame(currentDataset["PassengerId"])
+
+        print("Dropping column: ", currentFeature, "(" + str(datasetName) + ")")
         currentDataset = currentDataset.drop(currentFeature, axis=1)
 
     # Get feature names:
@@ -336,7 +451,28 @@ for d, datasetName in enumerate(datasetNames):
         # Replace "NaN" with "NA-FEATURE":
         replacementString = "NA-" + currentFeature
         print("Replacing NaNs in: ", currentFeature, "with", replacementString)
-        currentDataset[currentFeature] = replaceFeatureValue(currentDataset[currentFeature], np.NaN, replacementString)
+
+        currentDataset[currentFeature] = replaceFeatureValue(currentDataset[currentFeature], np.NaN,
+                                                             replacementString)
+
+        # if currentFeature == "CryoSleep":
+        #
+        #     keyName = "CryoImputer-" + currentFeature
+        #
+        #     if datasetName == "train":
+        #         currentImputer = SimpleImputer(missing_values=replacementString, strategy="most_frequent")
+        #         currentDataset[currentFeature] = currentImputer.fit_transform(
+        #             currentDataset[currentFeature].values.reshape(-1, 1))[:, 0]
+        #         # Store encoder into dictionary:
+        #         if keyName not in encodersDictionary:
+        #             encodersDictionary[keyName] = currentImputer
+        #     else:
+        #         # Create the encoder object:
+        #         currentImputer = encodersDictionary[keyName]
+        #         # Transform the feature:
+        #         currentDataset[currentFeature] = currentImputer.transform(
+        #             currentDataset[currentFeature].values.reshape(-1, 1))[:, 0]
+
         # Additionally, replace "True" and "False" in "CryoSleep/VIP" Column:
         if currentFeature == "CryoSleep" or currentFeature == "VIP":
             print("Replacing True/False in: ", currentFeature)
@@ -601,17 +737,23 @@ for d, datasetName in enumerate(datasetNames):
     # Append/Concat to original dataframe based on left indices:
     preprocessedDataset = preprocessedDataset.join(tempDataframe)
 
+    # Filter least important features:
+    if filterFeatures:
+        print("Performing feature filtering for: ", datasetName)
+        featureCounter = 0
+        for featureName in featuresList:
+            # Drop the feature:
+            preprocessedDataset = preprocessedDataset.drop(featureName, axis=1)
+            featureCounter += 1
+        print("Dropped Features: ", featureCounter)
+
     # Store in dataset dictionary:
     datasets[datasetName]["dataset"] = preprocessedDataset
 
     print("Finished preprocessing for dataset: ", datasetName)
 
 # Fit the model:
-modelType = "RandomForest"
 print("Fitting model: ", modelType)
-
-runGridSearch = True
-showFeatureImportance = True
 
 # Dictionary of grid parameters:
 logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 40), "penalty": ["l1", "l2"]}
@@ -622,24 +764,45 @@ modelDictionary = {"SVM":  # svm.SVC(C=0.8, kernel="rbf")
                        {"Model": svm.SVC(C=0.8, kernel="rbf"),
                         "Params": svmParameters},
                    "LogisticRegression":
-                       {"Model": LogisticRegression(solver="liblinear", C=1.0, random_state=42),
+                       {"Model": LogisticRegression(solver="liblinear", C=1.0, random_state=rng),
                         "Params": logisticParameters},
                    "SGD":  # SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015)
                        {"Model": SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015),
                         "Params": []},
                    "DecisionTree":
-                       {"Model": DecisionTreeClassifier(criterion="gini", max_depth=4, random_state=69,
+                       {"Model": DecisionTreeClassifier(criterion="gini", max_depth=4, random_state=rng,
                                                         max_features=30, max_leaf_nodes=25,
                                                         min_samples_split=2, min_samples_leaf=5,
                                                         splitter="best"),
                         "Params": []},
                    "RandomForest":
-                       {"Model": RandomForestClassifier(n_estimators=20, max_depth=10, random_state=69,
+                       {"Model": RandomForestClassifier(n_estimators=20, max_depth=10, random_state=rng,
                                                         max_features=10, max_leaf_nodes=30,
                                                         min_samples_split=20,
                                                         ),
                         "Params": []}
                    }
+
+# Classifiers that compose the ensemble:
+classifierNames = ["SVM", "LogisticRegression", "DecisionTree"]
+
+# Prepare the voting classifier:
+if modelType == "VotingClassifier":
+    # Set the classifier list:
+    classifierList = []
+    # Prepare the classifier list:
+    for classifierNames in classifierNames:
+        # Name + model, into the list:
+        classifierTuple = (classifierNames, modelDictionary[classifierNames]["Model"])
+        classifierList.append(classifierTuple)
+
+    # Create the voting classifier
+    votingClassifier = VotingClassifier(estimators=classifierList, voting="hard")
+    # votingClassifier.named_estimators["SVM"].probability = True
+
+    # Into the model dict:
+    tempDict = {"Model": votingClassifier, "Params": []}
+    modelDictionary["VotingClassifier"] = tempDict
 
 # Create the classifier model:
 currentModel = modelDictionary[modelType]["Model"]
@@ -650,70 +813,9 @@ trainFeatures = datasets["train"]["dataset"]
 currentModel.fit(trainFeatures, trainLabels)
 
 # If Model is Random Forest, show feature importance:
-if modelType == "RandomForest":
-
-    # Store the features here:
-    featureList = []
-    for score, name in zip(currentModel.feature_importances_, trainFeatures.columns):
-        # Store the score along its feature name:
-        featureList.append((score, name))
-
-    # Sort from largest to smallest according to first tuple element:
-    featureList.sort(key=lambda tup: tup[0], reverse=True)
-
-    # Create lists for plotting:
-    totalFeatures = len(featureList)
-    scoreSorted = []
-    featuresSorted = [None] * totalFeatures
-
-    # Set score total threshold:
-    maxSCoreThreshold = 0.95
-    leastImportantFeatures = []
-    mostImportantFeatures = []
-
-    # Loop thru the features:
-    scoreAccumulator = 0.0
-    for f, currentTuple in enumerate(featureList):
-        # Get current tuple:
-        currentScore, currentFeature = currentTuple
-
-        # Reverse-store score and feature name:
-        # scoreSorted.append(currentScore)
-        featuresSorted[(totalFeatures - 1) - f] = currentFeature
-
-        # Accumulate score:
-        if scoreAccumulator < maxSCoreThreshold:
-            # Store most important feature:
-            mostImportantFeatures.append(currentScore)
-            scoreAccumulator += currentScore
-        else:
-            # Store least important features:
-            leastImportantFeatures.append(currentScore)
-
-        # Print info:
-        print("{:.4f}".format(currentScore), "(" + "{:.4f}".format(scoreAccumulator * 100) + "%)", currentFeature)
-
-    # Reverse lists:
-    mostImportantFeatures.sort(reverse=False)
-    leastImportantFeatures.sort(reverse=False)
-
-    # Plot the features:
-    plt.title("Feature importance", fontsize=10)
-    plt.xlabel("Importance", fontsize=13)
-
-    # Get lists of vertical units:
-    lowRange = list(range(len(leastImportantFeatures)))
-    highRange = list(range(len(mostImportantFeatures)))
-    # Add offset to the bars:
-    highRange = [x + len(leastImportantFeatures) for x in highRange]
-
-    # Plot two groups of horizontal bars -> least important (red), most important (green)
-    plt.barh(lowRange, leastImportantFeatures, color="red", edgecolor='red')
-    plt.barh(highRange, mostImportantFeatures, color="green", edgecolor='green')
-    # Add feature names to the vertical axis:
-    plt.yticks(range(len(featuresSorted)), featuresSorted)
-    # disp.plot()
-    plt.show()
+# If Model is Random Forest, show feature importance:
+if modelType == "RandomForest" and showFeatureImportance:
+    showFeatures(currentModel, trainFeatures, featureScoreThreshold)
 
 # Check out the classifier's accuracy using cross-validation:
 print("[INFO] --- Cross-Validating Classifier...")
@@ -732,13 +834,19 @@ print(">> Mu: ", cvMean, "Sigma:", cvStdDev)
 
 # Stratified cross-validation:
 print("[INFO] --- Performing Stratified Cross-Validation...")
-stratifiedCrossValidation(currentModel, trainFeatures, trainLabels, splits=10, randomSeed=randomSeed, testSize=0.2,
-                          verbose=False)
+_, stratAccuracy, stratStdDev = stratifiedCrossValidation(currentModel, trainFeatures, trainLabels,
+                                                          randomState=rng, splits=10, testSize=0.2,
+                                                          verbose=False)
 
-# Test the Regression Model:
+# Test current model:
 print("[INFO] --- Testing Classifier...")
 testLabels = datasets["validation"]["labels"].values.ravel()  # From column to row
 testFeatures = datasets["validation"]["dataset"]
+
+if modelType == "VotingClassifier":
+    print("Computing Voting Accuracies...")
+    for classifierName, currentClassifier in modelDictionary[modelType]["Model"].named_estimators_.items():
+        print(" ", classifierName, ":", currentClassifier.score(testFeatures, testLabels))
 
 modelScore = currentModel.score(testFeatures, testLabels)
 print(">> Accuracy:", modelScore)
@@ -750,6 +858,8 @@ realClasses = perSampleAccuracy(testFeatures, testLabels, currentModel)
 
 # Get and display results:
 displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, cvStdDev, 10)
+# Display Stratified CV results:
+print("Strat. Mean Accuracy:", "{:.4f}".format(stratAccuracy), "Strat. Std.Dev:", "{:.4f}".format(stratStdDev))
 
 # Plot confusion matrix:
 plotConfusionMatrix(testLabels, currentModel)
@@ -799,4 +909,28 @@ if runGridSearch and gridParameters:
     # Plot confusion matrix:
     plotConfusionMatrix(testLabels, currentModelOptimized)
 
-    print("Fuck You")
+print(">> Computing final predictions...")
+
+# Fit the model to the test data:
+testFeatures = datasets["test"]["dataset"]
+finalPredictions = currentModel.predict(testFeatures)
+
+# Convert numpy array to dataframe:
+finalPredictionsDataFrame = pd.DataFrame(finalPredictions)
+
+# Transpose original array (row to column):
+finalPredictions = finalPredictions.reshape(-1, 1)
+
+# Change 1 -> True, 0 -> False:
+finalPredictionsDataFrame = replaceFeatureValue(finalPredictionsDataFrame, 1, True)
+finalPredictionsDataFrame = replaceFeatureValue(finalPredictionsDataFrame, 0, False)
+
+# Attach predictions:
+passengerList[predictionLabel] = finalPredictionsDataFrame
+
+# Write CSV:
+if writeOutfile:
+    print(">> Writing output file: ", outFilename)
+    passengerList.to_csv(outFilename, index=False)
+
+print(">> Done. Fuck you.")
