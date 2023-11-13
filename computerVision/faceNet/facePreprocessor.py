@@ -1,9 +1,9 @@
 # File        :   facePreprocessor.py
-# Version     :   0.17.0
+# Version     :   0.18.2
 # Description :   Detects and crops faces from images. To be used for
 #                 faceNet training and testing.
 
-# Date:       :   Sept 16, 2023
+# Date:       :   Nov 12, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -377,6 +377,14 @@ for c, currentDirectory in enumerate(classesDirectories):
     filenamesDict = {}
     # Skipped images counter:
     skippedImages = 0
+
+    # Set staring image index:
+    imageOffset = 0
+
+    # Counter for new files:
+    newCount = 0
+    print("Starting indexing files from: ", imageOffset)
+
     for i, f in enumerate(imagePaths):
 
         # Get filename only (without extension):
@@ -384,6 +392,15 @@ for c, currentDirectory in enumerate(classesDirectories):
 
         # Get file time:
         fileTime = os.path.getctime(f)
+
+        # Set pair number:
+        if fileTime > latestFileTime:
+            # New Files:
+            pairCount = math.ceil(0.5 * (newCount + 1)) + lastSavedFileNumber
+            newCount += 1
+        else:
+            # Past Files:
+            pairCount = math.ceil(0.5 * (i + 1)) + imageOffset
 
         # Into the dictionary:
         if currentClass != "Uniques":
@@ -400,8 +417,7 @@ for c, currentDirectory in enumerate(classesDirectories):
                 print("Found repeated random value...")
             filenamesDict[currentFilename] = outName
         else:
-            # Set pair number:
-            pairCount = math.ceil(0.5 * (i + 1))
+
             # Set pair char:
             if (i + 1) % 2 == 1:
                 pairChar = "A"
@@ -417,7 +433,7 @@ for c, currentDirectory in enumerate(classesDirectories):
             print(i, currentFilename, fileTime, latestFileTime)
             if fileTime > latestFileTime:
                 filteredDict[currentFilename] = filenamesDict[currentFilename]
-                print(str(i) + " New File: " + currentFilename)
+                print(str(i) + " New File: " + currentFilename + " (" + str(pairCount) + ")")
             else:
                 skippedImages += 1
 
@@ -427,7 +443,7 @@ for c, currentDirectory in enumerate(classesDirectories):
         newImages = len(filteredDict)
 
         print("Total skipped images: " + str(skippedImages))
-        print("Total new images: " + str(newImages))
+        print("[>] Total new images: " + str(newImages))
         print("Total: " + str(totalImages))
 
         # Check new images to be processed:
@@ -502,6 +518,10 @@ for c, currentDirectory in enumerate(classesDirectories):
         currentImage = readImage(currentPath)
         currentImageCopy = currentImage.copy()
 
+        # Show input:
+        if displayImages:
+            showImage("Current Image", currentImage)
+
         # Check if original file must be overwritten (should be either sample or pair):
         currentFilenamePrefix = currentFilename.split("-")[0]
 
@@ -515,8 +535,17 @@ for c, currentDirectory in enumerate(classesDirectories):
 
             # Remove original image:
             if deleteOriginal:
-                print("[FaceNet Pre-processor] Removing File: " + currentPath)
-                os.remove(currentPath)
+                fileDeleted = False
+                while not fileDeleted:
+                    print("[FaceNet Pre-processor] Removing File: " + currentPath)
+                    try:
+                        os.remove(currentPath)
+                        fileDeleted = True
+                    except OSError as e:
+                        print(e)
+                        print("[File in used] An exception occurred while trying to remove the file")
+                        print("Please kill process using the file. Sleeping for 5 seconds...")
+                        time.sleep(5)
 
             # Create out name:
             parentDir = str(imagePaths[j].parent) + "//"
