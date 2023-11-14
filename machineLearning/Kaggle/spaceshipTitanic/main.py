@@ -1,9 +1,9 @@
 # File        :   spaceshipTitanic.py
-# Version     :   1.1.5
+# Version     :   1.1.8
 # Description :   Solution for Kaggle's Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
-# Date:       :   Nov 12, 2023
+# Date:       :   Nov 13, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -293,9 +293,9 @@ def showFeatures(currentModel, trainFeatures, maxSCoreThreshold=0.95):
 # Project Path:
 projectPath = "D://dataSets//spaceTitanic//"
 # Output Path:
-outFilename = projectPath + "outPredictions.csv"
+outFilename = projectPath + "outPredictions5.csv"
 # Write final CSV?
-writeOutfile = True
+writeOutfile = False
 
 # File Names:
 datasetNames = ["train", "validation", "test"]
@@ -310,21 +310,26 @@ predictionLabel = "Transported"
 randomSeed = 42
 rng = np.random.RandomState(randomSeed)
 
+# Test split:
+# -1 uses all train dataset for training (no validation):
+testSplit = 0.2
+
 # Model type:
 modelType = "VotingClassifier"
+svmVoting = "hard"
 
 numericalBins = 5
 # runGridSearch = False
 
 # Feature Selection:
-showFeatureImportance = False
+showFeatureImportance = True
 featureScoreThreshold = 0.98
 # featuresList = ['C', 'Infant', 'Child', 'NA-Age', '55 Cancri e', 'NA-CryoSleep', 'B', 'TRAPPIST-1e', 'Young Adult',
 #                 'Adult', 'D', 'PSO J318.5-22', 'VIP-FALSE', 'Senior', 'NA-Cabin-2', 'NA-VIP', 'NA-HomePlanet',
 #                 'NA-Destination', 'NA-Cabin-0', 'VIP-TRUE', 'Teenager', 'A', 'T']
 
 # The list of features to drop:
-featuresList = ['NA-Destination', 'NA-Cabin-0', 'VIP-TRUE', 'Teenager', 'A', 'T']
+featuresList = ['NA-Cabin-0']
 filterFeatures = False
 
 # Cross-validation folds:
@@ -364,26 +369,31 @@ for d, datasetName in enumerate(datasetNames):
     # Select dataset type:
     if datasetName == "train":
 
-        print("Splitting training + validation datasets...")
-
         # Read the cvs file:
         currentDataset = pd.read_csv(projectPath + datasetName + fileExtension)
 
-        # labels = replaceFeatureValue(currentDataset[predictionLabel], True, 1)
-        # labels = replaceFeatureValue(labels, False, 0)
-        #
-        # showClassDistribution(labels)
+        # Create test split?
+        if testSplit != -1:
+            # Split the training dataset into train + validation:
+            print("Splitting training + validation datasets...")
+            trainDataset, validationDataset = train_test_split(currentDataset, test_size=testSplit, random_state=rng)
 
-        # Split the training dataset into train + validation:
-        trainDataset, validationDataset = train_test_split(currentDataset, test_size=0.2, random_state=rng)
+            # Store the validation dataset:
+            datasets["validation"]["dataset"] = validationDataset
 
-        # Store the validation dataset:
-        datasets["validation"]["dataset"] = validationDataset
+        else:
+            # No test, use all train dataset to train the classifier:
+            trainDataset = currentDataset
 
         # Set the dataset to be processed:
         currentDataset = trainDataset
 
     elif datasetName == "validation":
+
+        # Check split:
+        if testSplit == -1:
+            print("No validation dataset provided, skipping...")
+            continue
 
         print("Setting validation dataset")
         validationDataset = datasets["validation"]["dataset"]
@@ -756,18 +766,21 @@ for d, datasetName in enumerate(datasetNames):
 print("Fitting model: ", modelType)
 
 # Dictionary of grid parameters:
-logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 40), "penalty": ["l1", "l2"]}
+logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-1.5, 1, 50)[1:10], "penalty": ["l1", "l2"]}
 # svmParameters = {"kernel": ["rbf"], "C": np.logspace(-2, 10, 2), "gamma": np.logspace(-9, 3, 3)}
-svmParameters = {"kernel": ["rbf"], "C": np.logspace(-1.0, 0.5, 5), "gamma": [0.001, 0.01, 0.1, 1.0, 10.0]}
+svmParameters = {"kernel": ["rbf"], "C": [2.1544346900318843], "gamma": np.logspace(-2.1, 0.01, 20)[1:10]}
 
 modelDictionary = {"SVM":  # svm.SVC(C=0.8, kernel="rbf")
-                       {"Model": svm.SVC(C=0.8, kernel="rbf"),
+                       {"Model": svm.SVC(C=2.1544, gamma=0.0614, kernel="rbf", random_state=rng),
+                        # "Model": svm.SVC(C=0.8, kernel="rbf"),
                         "Params": svmParameters},
                    "LogisticRegression":
-                       {"Model": LogisticRegression(solver="liblinear", C=1.0, random_state=rng),
+                       {"Model": LogisticRegression(solver="liblinear", penalty="l2", C=1.0, random_state=rng),
+                        # "Model": LogisticRegression(solver="liblinear", penalty="l1", C=0.05583914701751073,
+                        #                            random_state=rng),
                         "Params": logisticParameters},
                    "SGD":  # SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015)
-                       {"Model": SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015),
+                       {"Model": SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015, random_state=rng),
                         "Params": []},
                    "DecisionTree":
                        {"Model": DecisionTreeClassifier(criterion="gini", max_depth=4, random_state=rng,
@@ -797,8 +810,9 @@ if modelType == "VotingClassifier":
         classifierList.append(classifierTuple)
 
     # Create the voting classifier
-    votingClassifier = VotingClassifier(estimators=classifierList, voting="hard")
-    # votingClassifier.named_estimators["SVM"].probability = True
+    votingClassifier = VotingClassifier(estimators=classifierList, voting=svmVoting)
+    if svmVoting == "soft":
+        votingClassifier.named_estimators["SVM"].probability = True
 
     # Into the model dict:
     tempDict = {"Model": votingClassifier, "Params": []}
@@ -838,31 +852,33 @@ _, stratAccuracy, stratStdDev = stratifiedCrossValidation(currentModel, trainFea
                                                           randomState=rng, splits=10, testSize=0.2,
                                                           verbose=False)
 
-# Test current model:
-print("[INFO] --- Testing Classifier...")
-testLabels = datasets["validation"]["labels"].values.ravel()  # From column to row
-testFeatures = datasets["validation"]["dataset"]
+if testSplit != -1:
 
-if modelType == "VotingClassifier":
-    print("Computing Voting Accuracies...")
-    for classifierName, currentClassifier in modelDictionary[modelType]["Model"].named_estimators_.items():
-        print(" ", classifierName, ":", currentClassifier.score(testFeatures, testLabels))
+    # Test current model:
+    print("[INFO] --- Testing Classifier...")
+    testLabels = datasets["validation"]["labels"].values.ravel()  # From column to row
+    testFeatures = datasets["validation"]["dataset"]
 
-modelScore = currentModel.score(testFeatures, testLabels)
-print(">> Accuracy:", modelScore)
+    if modelType == "VotingClassifier":
+        print("Computing Voting Accuracies...")
+        for classifierName, currentClassifier in modelDictionary[modelType]["Model"].named_estimators_.items():
+            print(" ", classifierName, ":", currentClassifier.score(testFeatures, testLabels))
 
-print("[INFO] --- Computing Per sample accuracy...")
+    modelScore = currentModel.score(testFeatures, testLabels)
+    print(">> Accuracy:", modelScore)
 
-# Get per sample accuracy:
-realClasses = perSampleAccuracy(testFeatures, testLabels, currentModel)
+    print("[INFO] --- Computing Per sample accuracy...")
 
-# Get and display results:
-displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, cvStdDev, 10)
-# Display Stratified CV results:
-print("Strat. Mean Accuracy:", "{:.4f}".format(stratAccuracy), "Strat. Std.Dev:", "{:.4f}".format(stratStdDev))
+    # Get per sample accuracy:
+    realClasses = perSampleAccuracy(testFeatures, testLabels, currentModel)
 
-# Plot confusion matrix:
-plotConfusionMatrix(testLabels, currentModel)
+    # Get and display results:
+    displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, cvStdDev, 10)
+    # Display Stratified CV results:
+    print("Strat. Mean Accuracy:", "{:.4f}".format(stratAccuracy), "Strat. Std.Dev:", "{:.4f}".format(stratStdDev))
+
+    # Plot confusion matrix:
+    plotConfusionMatrix(testLabels, currentModel)
 
 # Check parameters for grid search:
 gridParameters = modelDictionary[modelType]["Params"]
@@ -874,19 +890,19 @@ if runGridSearch and gridParameters:
     optimizedModels = {"SVM": svm.SVC(), "LogisticRegression": LogisticRegression(max_iter=400)}
 
     # currentModel = LogisticRegression(max_iter=400)
-    currentModel = optimizedModels[modelType]
+    optimizedModel = optimizedModels[modelType]
 
-    currentModelOptimized = RandomizedSearchCV(currentModel, gridParameters, cv=3,
-                                               n_jobs=parallelJobs)
-    currentModelOptimized.fit(trainFeatures, trainLabels)
+    optimizedModel = RandomizedSearchCV(optimizedModel, gridParameters, cv=3,
+                                        n_jobs=parallelJobs)
+    optimizedModel.fit(trainFeatures, trainLabels)
 
     # Print hyperparameters & accuracy:
     print("[INFO] --- Grid Search Best Parameters:")
-    print("", currentModelOptimized.best_params_)
+    print("", optimizedModel.best_params_)
 
     # Check out the reggressor accuracy using cross-validation:
     print("[INFO] --- [Post-Grid Search] Cross-Validating Classifier...")
-    modelAccuracy = cross_val_score(estimator=currentModelOptimized, X=trainFeatures, y=trainLabels,
+    modelAccuracy = cross_val_score(estimator=optimizedModel, X=trainFeatures, y=trainLabels,
                                     cv=cvFolds,
                                     n_jobs=parallelJobs, verbose=3)
 
@@ -901,13 +917,13 @@ if runGridSearch and gridParameters:
     print(">> Mu: ", cvMean, "Sigma:", cvStdDev)
 
     # Get per sample accuracy:
-    realClasses = perSampleAccuracy(testFeatures, testLabels, currentModelOptimized)
+    realClasses = perSampleAccuracy(testFeatures, testLabels, optimizedModel)
 
     # Get and display results:
-    displayResults(currentModelOptimized, testFeatures, testLabels, realClasses, cvMean, cvStdDev, 3)
+    displayResults(optimizedModel, testFeatures, testLabels, realClasses, cvMean, cvStdDev, 3)
 
     # Plot confusion matrix:
-    plotConfusionMatrix(testLabels, currentModelOptimized)
+    plotConfusionMatrix(testLabels, optimizedModel)
 
 print(">> Computing final predictions...")
 
