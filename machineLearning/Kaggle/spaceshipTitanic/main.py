@@ -14,7 +14,7 @@ import os
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-from tensorflow.keras.optimizers import RMSprop
+from tensorflow.keras.optimizers import RMSprop, Adam
 from tensorflow.keras import regularizers
 from tensorflow.keras.models import load_model
 
@@ -387,19 +387,19 @@ modelType = "VotingClassifier"
 svmVoting = "soft"
 
 getFinalPredictions = False
-fitShallow = True
+fitShallow = False
 
 # Use dnn to predict a new feature?
 dnnFeature = False
 
 # Should the DNN be run?
-runDNN = False
+runDNN = True
 # DNN epochs:
 totalEpochs = 100
 # Batch size:
 dnnBatchSize = 64
 # Learning rate:
-dnnLearningRate = 0.0002
+dnnLearningRate = 0.0004
 
 # Store best model here:
 bestModel = {"Model": None, "Accuracy": 0.0, "Threshold": 0.0}
@@ -414,7 +414,7 @@ skipStratifiedCV = True
 
 # Cross-validation folds:
 cvFolds = 10
-runGridSearch = True
+runGridSearch = False
 # Cross-validation parallel jobs (1 per core):
 parallelJobs = 5
 
@@ -939,68 +939,72 @@ if fitShallow:
     print("Fitting model: ", modelType)
 
     # Dictionary of grid parameters:
-    logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-1, 0, 40)[1:16], "penalty": ["l2"]}
-    svmParameters = {"kernel": ["linear", "rbf"],
-                     "C": np.logspace(-1.0, 0.4, 10)}
-    # svmParameters = {"kernel": ["rbf"], "C": [2.1544346900318843], "gamma": np.logspace(-2.1, 0.01, 20)[1:10]}
+    logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 10), "penalty": ["l2"]}
+
+    svmParameters = {"kernel": ["rbf"], "C": np.logspace(-0.1, 0.5, 10),
+                     "gamma": [0.09027252, 0.09261187, 0.09501185, 0.09747402, 0.1]}
 
     modelDictionary = {"SVM":  # svm.SVC(C=0.8, kernel="rbf")
-        {  # "Model": svm.SVC(C=2.1544, gamma=0.0614, kernel="rbf", random_state=rng),
-            "Model": svm.SVC(C=1.7995852, kernel="rbf", random_state=rng),
-            "Params": svmParameters},
-        "LogisticRegression":
-            {"Model": LogisticRegression(solver="liblinear", penalty="l2", C=0.10608183551394486, random_state=rng),
-             # "Model": LogisticRegression(solver="liblinear", penalty="l1", C=0.05583914701751073,
-             #                            random_state=rng),
-             "Params": logisticParameters},
-        "SGD":  # SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015)
-            {"Model": SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00008, random_state=rng),
-             "Params": []},
-        "DecisionTree":
-            {"Model": DecisionTreeClassifier(criterion="gini", random_state=rng,
-                                             max_depth=4,
-                                             max_features=35,
-                                             # max_leaf_nodes=10,
-                                             # min_samples_split=2,
-                                             # min_samples_leaf=2,
-                                             # splitter="best"
-                                             ),
-             "Params": []},
-        "RandomForest":
-            {"Model": RandomForestClassifier(random_state=rng,
-                                             n_estimators=60,
-                                             max_depth=10,
-                                             max_features=10,
-                                             max_leaf_nodes=30,
-                                             min_samples_split=30,
-                                             ),
-             "Params": []},
-        "GradientBoost":
-            {"Model": GradientBoostingClassifier(random_state=rng,
-                                                 n_estimators=150,
-                                                 max_depth=4,
-                                                 max_features="auto",
-                                                 max_leaf_nodes=20,
-                                                 learning_rate=0.09,
-                                                 n_iter_no_change=10,
-                                                 subsample=1.0
-                                                 ),
-             "Params": []},
+                           {"Model": svm.SVC(C=1.0, kernel="rbf", gamma=0.09, random_state=rng),
+                            # {"Model": svm.SVC(C=0.11, kernel="rbf", gamma=0.06, random_state=rng),
+                            # "Model": svm.SVC(C=1.7995852, kernel="rbf", random_state=rng),
+                            "Params": svmParameters},
+                       "LogisticRegression":
+                           {"Model": LogisticRegression(solver="liblinear", penalty="l2", C=1.0,
+                                                        random_state=rng),
+                            # "Model": LogisticRegression(solver="liblinear", penalty="l1", C=0.05583914701751073,
+                            #                            random_state=rng),
+                            "Params": logisticParameters},
+                       "SGD":  # SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015)
+                           {"Model": SGDClassifier(loss="hinge", penalty="l1", alpha=0.0001, random_state=rng),
+                            "Params": []},
+                       "DecisionTree":
+                           {"Model": DecisionTreeClassifier(criterion="gini", random_state=rng,
+                                                            # max_depth=4,
+                                                            max_features=30,
+                                                            # max_leaf_nodes=2,
+                                                            min_samples_split=10,
+                                                            # min_samples_leaf=1,
+                                                            splitter="best"
+                                                            ),
+                            "Params": []},
+                       "RandomForest":
+                           {"Model": RandomForestClassifier(random_state=rng,
+                                                            n_estimators=60,
+                                                            max_depth=10,
+                                                            max_features=10,
+                                                            max_leaf_nodes=30,
+                                                            min_samples_split=30,
+                                                            ),
+                            "Params": []},
+                       "GradientBoost":
+                           {"Model": GradientBoostingClassifier(random_state=rng,
+                                                                n_estimators=150,
+                                                                max_depth=4,
+                                                                max_features="auto",
+                                                                max_leaf_nodes=20,
+                                                                learning_rate=0.09,
+                                                                n_iter_no_change=10,
+                                                                subsample=1.0
+                                                                ),
+                            "Params": []},
 
-        "AdaBoost":
-            {"Model": AdaBoostClassifier(random_state=rng,
-                                         base_estimator=DecisionTreeClassifier(max_depth=2),
-                                         n_estimators=100,
-                                         learning_rate=0.5
-                                         ),
-             "Params": []}
-    }
+                       "AdaBoost":
+                           {"Model": AdaBoostClassifier(random_state=rng,
+                                                        base_estimator=DecisionTreeClassifier(max_depth=2),
+                                                        n_estimators=100,
+                                                        learning_rate=0.5
+                                                        ),
+                            "Params": []}
+                       }
 
     # Classifiers that compose the ensemble:"
     # classifierNames = ["SVM", "LogisticRegression", "RandomForest"]
     # classifierNames = ["SVM", "LogisticRegression", "DecisionTree"]
 
     classifierNames = ["GradientBoost", "AdaBoost"]
+
+    # classifierNames = ["SVM", "LogisticRegression"]
 
     # Prepare the voting classifier:
     if modelType == "VotingClassifier":
@@ -1199,14 +1203,14 @@ if fitShallow:
 
             # Get and display results:
             resultsDict = displayResults(modelPredictions, testLabels, modelScore, cvMean, cvStdDev, 3)
-
             currentAccuracy = resultsDict["cmAccuracy"]
+
             if currentAccuracy > bestAccuracy:
                 # Store model & accuracy:
-                bestModel["Model"] = currentModel
+                bestModel["Model"] = optimizedModel
                 bestModel["Accuracy"] = currentAccuracy
                 bestModel["Threshold"] = 0.0
-                print("Got better model: ", bestModel.__class__.__name__)
+                print("Got better model: ", optimizedModel.__class__.__name__)
 
             # Plot confusion matrix:
             plotConfusionMatrix(testLabels, modelPredictions, optimizedModel)
@@ -1218,32 +1222,38 @@ if runDNN:
     trainFeatures = datasets["train"]["dataset"]
     trainLabels = datasets["train"]["labels"]
 
-    testFeatures = datasets["validation"]["dataset"]
-    testLabels = datasets["validation"]["labels"]
+    valFeatures = datasets["validation"]["dataset"]
+    valLabels = datasets["validation"]["labels"]
 
     # Feature data frames to tensors:
     trainFeatures = tf.convert_to_tensor(trainFeatures)
-    testFeatures = tf.convert_to_tensor(testFeatures)
+    valFeatures = tf.convert_to_tensor(valFeatures)
 
     # Set the dnn architecture:
     model = keras.Sequential(
         [
-            layers.Dense(32, activation="relu"),
-            layers.Dropout(0.2),
-            layers.Dense(16, activation="relu"),
-            layers.Dropout(0.2),
-            layers.Dense(8, activation="relu"),
-            layers.Dropout(0.2),
-            layers.Dense(4, activation="relu"),
-            layers.Dropout(0.2),
+            layers.Dense(units=64, kernel_initializer="he_normal"),
+            layers.BatchNormalization(),
+            layers.ReLU(),
+            layers.Dropout(0.5),
+
+            layers.Dense(units=32, kernel_initializer="he_normal"),
+            layers.BatchNormalization(),
+            layers.ReLU(),
+            layers.Dropout(0.5),
+
+            # layers.Dense(units=16, kernel_initializer="he_normal"),
+            # layers.BatchNormalization(),
+            # layers.ReLU(),
+            # layers.Dropout(0.5),
+
             layers.Dense(1, activation="sigmoid")
 
         ]
     )
 
     # Compile the model:
-
-    optimizer = RMSprop(learning_rate=dnnLearningRate)
+    optimizer = Adam(learning_rate=dnnLearningRate)
     model.compile(optimizer=optimizer, loss="binary_crossentropy", metrics=["accuracy"])
 
     # Model Checkpoint,
@@ -1260,8 +1270,12 @@ if runDNN:
                         trainLabels,
                         epochs=totalEpochs,
                         batch_size=dnnBatchSize,
-                        validation_data=(testFeatures, testLabels),
+                        validation_data=(valFeatures, valLabels),
                         callbacks=[modelCheckpoint])
+
+    loss, accuracy = model.evaluate(valFeatures, valLabels)
+    print("Test loss:", loss)
+    print("Test accuracy:", accuracy)
 
     # Plot the learning curves:
     # Plot the training loss and accuracy
