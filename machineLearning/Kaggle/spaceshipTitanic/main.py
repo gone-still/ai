@@ -1,23 +1,37 @@
 # File        :   spaceshipTitanic.py
-# Version     :   1.1.8
-# Description :   Solution for Kaggle's Spaceship Titanic problem
+# Version     :   1.2.0
+# Description :   Solution for Kaggle"s Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
-# Date:       :   Nov 13, 2023
+# Date:       :   Nov 16, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
 import numpy as np
 import pandas as pd
+import os
+
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from tensorflow.keras.optimizers import RMSprop
+from tensorflow.keras import regularizers
+from tensorflow.keras.models import load_model
+
+from tensorflow.keras.callbacks import ReduceLROnPlateau
+from tensorflow.keras.callbacks import ModelCheckpoint
+
 import random
+
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from collections import Counter
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.ensemble import IsolationForest
 
@@ -26,7 +40,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 
-from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier, GradientBoostingClassifier, AdaBoostClassifier
 
 from sklearn.model_selection import cross_val_score
 
@@ -38,7 +52,7 @@ from sklearn.base import clone
 
 from sklearn import metrics
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay, precision_score, \
-    recall_score, precision_recall_curve, f1_score
+    recall_score, precision_recall_curve, f1_score, accuracy_score
 
 import time
 
@@ -62,9 +76,45 @@ def processAge(inputDataset, ageBins, binLabels):
     return labeledAge
 
 
+def economic_status(person):
+    # Creating new column
+
+    # List of tests:
+    peopleChoices = []
+
+    # Test if these features are exactly == 0.0.
+    # If feature == 0 -> True, else: False:
+    peopleChoices.append(person.VIP == "VIP-FALSE")
+    peopleChoices.append(person.RoomService == 0.0)
+    peopleChoices.append(person.FoodCourt == 0.0)
+    peopleChoices.append(person.ShoppingMall == 0.0)
+    peopleChoices.append(person.Spa == 0.0)
+    peopleChoices.append(person.VRDeck == 0.0)
+
+    # Count number of "True"s in list:
+    count = peopleChoices.count(True)
+
+    # Bin the count:
+    #     Count >= 5 -> 1
+    # 5 > Count >= 3 -> 2
+    # 3 > Count >= 1 -> 3
+    # 1 > Count >= 0 -> 0
+    if count >= 5:
+        return 1
+    elif count >= 3 and count < 5:
+        return 2
+    elif count >= 1 and count < 3:
+        return 3
+    else:
+        return 0
+
+
 # Performs stratified cross-validation:
 def stratifiedCrossValidation(currentModel, trainFeatures, trainLabels, randomState, splits=10, testSize=0.2,
-                              verbose=False):
+                              runCV=True, verbose=False):
+    if not runCV:
+        print("Skipping stratified crossvalidation...")
+        return [], 0.0, 0.0
     # Get the stratified partitioned object from dataset:
     cvFolds = StratifiedShuffleSplit(n_splits=splits, test_size=testSize, random_state=randomState)
     # indices = cvFolds.get_n_splits(trainFeatures, trainLabels)
@@ -110,8 +160,8 @@ def stratifiedCrossValidation(currentModel, trainFeatures, trainLabels, randomSt
 
 
 # Plots a confusion matrix:
-def plotConfusionMatrix(testLabels, model):
-    modelPredictions = model.predict(testFeatures)
+def plotConfusionMatrix(testLabels, modelPredictions, model):
+    # modelPredictions = model.predict(testFeatures)
     confusionMatrix = confusion_matrix(testLabels, modelPredictions, labels=model.classes_)
     disp = ConfusionMatrixDisplay(confusion_matrix=confusionMatrix, display_labels=model.classes_)
     disp.plot()
@@ -119,28 +169,22 @@ def plotConfusionMatrix(testLabels, model):
 
 
 # Get per sample accuracy and returns counter of test (real) labels:
-def perSampleAccuracy(testFeatures, testLabels, currentModel, computeProbas=False):
-    if computeProbas:
-        # Get prediction probabilities:
-        predictionProbabilities = currentModel.predict_proba(testFeatures)
-    else:
-        predictionProbabilities = currentModel.predict(testFeatures)
-
+def perSampleAccuracy(modelPredictions, testLabels, verbose=True):
     # Real classes counter:
     classesCounter = {"0": 0, "1": 0}
 
     # List of accuracies per sample:
-    sampleAccuracies = []
+    # sampleAccuracies = []
 
     # Print the predicted class, real class and probabilities per sample:
-    for i in range(len(testFeatures)):
+    for i in range(len(testLabels)):
 
         # Get sample max probability:
-        sampleProbability = np.max(predictionProbabilities[i])
+        # sampleProbability = np.max(predictionProbabilities[i])
         # Into the list:
-        sampleAccuracies.append(sampleProbability)
+        # sampleAccuracies.append(sampleProbability)
         # Get predicted class:
-        sampleClass = np.argmax(predictionProbabilities[i])
+        sampleClass = modelPredictions[i]
         # Get real class:
         realClass = testLabels[i]
         # Into class counter:
@@ -149,25 +193,27 @@ def perSampleAccuracy(testFeatures, testLabels, currentModel, computeProbas=Fals
         missmatch = ""
         if realClass != sampleClass:
             missmatch = " <-"
+
         # Print the info:
-        print(" Sample:", i, "Truth:", realClass, "Predicted:", sampleClass,
-              "(Proba: " + "{:.4f}".format(sampleProbability) + ")" + missmatch)
+        if verbose:
+            print(" Sample:", i, "Truth:", realClass, "Predicted:", sampleClass, missmatch)
 
     return classesCounter
 
 
 # Computes and prints results:
-def displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, cvStdDev, cvFolds):
+def displayResults(modelPredictions, testLabels, modelScore, cvMean, cvStdDev, cvFolds):
+    # The out values:
+    outValues = {}
     # Print the confusion matrix array:
-    modelPredictions = currentModel.predict(testFeatures)
-    cmArray = confusion_matrix(testLabels, modelPredictions)  # normalize='pred'
+    cmArray = confusion_matrix(testLabels, modelPredictions)  # normalize="pred"
     print("Confusion Matrix: ")
     print(cmArray)
 
     # Get accuracy from CM:
     accuracy = (cmArray[0][0] + cmArray[1][1]) / len(testLabels)
-    print("Class labels counters: ")
-    print(realClasses)
+    # Into the out list:
+    outValues["cmAccuracy"] = accuracy
 
     # Compute precision & recall:
     modelPrecision = precision_score(testLabels, modelPredictions)
@@ -175,9 +221,6 @@ def displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, 
 
     # Compute F1 score:
     f1Score = f1_score(testLabels, modelPredictions)
-
-    # Get model score:
-    modelScore = currentModel.score(testFeatures, testLabels)
 
     # Print the results:
     dateNow = time.strftime("%Y-%m-%d %H:%M")
@@ -188,10 +231,12 @@ def displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, 
     print("F1: ", f1Score)
     print("---------------------------------------------------------- ")
     print("Validation CM Accuracy:", accuracy)
-    print("Validation Accuracy:", modelScore)
+    print("Validation Accuracy [NT]:", modelScore)
 
     print(">> Cross-validation Mean (" + str(cvFolds) + " Folds): ", "{:.4f}".format(cvMean),
           "StdDev: ", "{:.4f}".format(cvStdDev))
+
+    return outValues
 
 
 # Shows the distribution of a two-classes dataset:
@@ -282,20 +327,43 @@ def showFeatures(currentModel, trainFeatures, maxSCoreThreshold=0.95):
     highScores = [j[0] for j in mostImportantFeatures]
 
     # Plot two groups of horizontal bars -> least important (red), most important (green)
-    plt.barh(lowRange, lowScores, color="red", edgecolor='red')
-    plt.barh(highRange, highScores, color="green", edgecolor='green')
+    plt.barh(lowRange, lowScores, color="red", edgecolor="red")
+    plt.barh(highRange, highScores, color="green", edgecolor="green")
 
     # Add feature names to the vertical axis:
     plt.yticks(range(len(featuresSorted)), featuresSorted)
     plt.show()
 
 
+def bestThreshold(y_test_list_norm, y_pred_proba_norm):
+    scores = []
+    thresholds = []
+
+    best_score = 0
+    best_threshold = 0
+
+    for threshold in np.arange(0.4, 0.81, 0.01):
+        predictions = (y_pred_proba_norm > threshold).astype(int)
+        m = accuracy_score(y_test_list_norm, predictions)
+        scores.append(m)
+        thresholds.append(threshold)
+        if m > best_score:
+            best_score = m
+            best_threshold = threshold
+            # print(m)
+
+    # print(scores)
+    # print(thresholds)
+
+    return best_threshold
+
+
 # Project Path:
 projectPath = "D://dataSets//spaceTitanic//"
 # Output Path:
-outFilename = projectPath + "outPredictions5.csv"
+outFilename = "outPredictions"
 # Write final CSV?
-writeOutfile = False
+writeOutfile = True
 
 # File Names:
 datasetNames = ["train", "validation", "test"]
@@ -316,28 +384,50 @@ testSplit = 0.2
 
 # Model type:
 modelType = "VotingClassifier"
-svmVoting = "hard"
+svmVoting = "soft"
+
+getFinalPredictions = False
+fitShallow = True
+
+# Use dnn to predict a new feature?
+dnnFeature = False
+
+# Should the DNN be run?
+runDNN = False
+# DNN epochs:
+totalEpochs = 100
+# Batch size:
+dnnBatchSize = 64
+# Learning rate:
+dnnLearningRate = 0.0002
+
+# Store best model here:
+bestModel = {"Model": None, "Accuracy": 0.0, "Threshold": 0.0}
+
+# Compute the best threshold?
+computeThreshold = False
 
 numericalBins = 5
-# runGridSearch = False
+
+# Skip stratified CV:
+skipStratifiedCV = True
+
+# Cross-validation folds:
+cvFolds = 10
+runGridSearch = True
+# Cross-validation parallel jobs (1 per core):
+parallelJobs = 5
 
 # Feature Selection:
 showFeatureImportance = True
 featureScoreThreshold = 0.98
-# featuresList = ['C', 'Infant', 'Child', 'NA-Age', '55 Cancri e', 'NA-CryoSleep', 'B', 'TRAPPIST-1e', 'Young Adult',
-#                 'Adult', 'D', 'PSO J318.5-22', 'VIP-FALSE', 'Senior', 'NA-Cabin-2', 'NA-VIP', 'NA-HomePlanet',
-#                 'NA-Destination', 'NA-Cabin-0', 'VIP-TRUE', 'Teenager', 'A', 'T']
+# featuresList = ["C", "Infant", "Child", "NA-Age", "55 Cancri e", "NA-CryoSleep", "B", "TRAPPIST-1e", "Young Adult",
+#                 "Adult", "D", "PSO J318.5-22", "VIP-FALSE", "Senior", "NA-Cabin-2", "NA-VIP", "NA-HomePlanet",
+#                 "NA-Destination", "NA-Cabin-0", "VIP-TRUE", "Teenager", "A", "T"]
 
 # The list of features to drop:
-featuresList = ['NA-Cabin-0']
+featuresList = ["T"]
 filterFeatures = False
-
-# Cross-validation folds:
-cvFolds = 10
-
-runGridSearch = False
-# Cross-validation parallel jobs (1 per core):
-parallelJobs = 5
 
 # Set console format:
 pd.set_option("display.max_rows", 500)
@@ -358,6 +448,18 @@ encodersDictionary = {}
 datasets = {"train": {},
             "validation": {},
             "test": {}}
+
+# Load DNN model:
+modelFilename = "dnnModel.keras"
+modelPath = projectPath + modelFilename
+fileExists = os.path.exists(modelPath)
+
+if not fileExists:
+    raise ValueError("Model file: " + modelPath + " does not exist.")
+else:
+    print("Loading model from: " + modelPath)
+
+dnnModel = load_model(modelPath)
 
 # Store here the test passenger columns for final CSV:
 passengerList = pd.DataFrame()
@@ -465,24 +567,6 @@ for d, datasetName in enumerate(datasetNames):
         currentDataset[currentFeature] = replaceFeatureValue(currentDataset[currentFeature], np.NaN,
                                                              replacementString)
 
-        # if currentFeature == "CryoSleep":
-        #
-        #     keyName = "CryoImputer-" + currentFeature
-        #
-        #     if datasetName == "train":
-        #         currentImputer = SimpleImputer(missing_values=replacementString, strategy="most_frequent")
-        #         currentDataset[currentFeature] = currentImputer.fit_transform(
-        #             currentDataset[currentFeature].values.reshape(-1, 1))[:, 0]
-        #         # Store encoder into dictionary:
-        #         if keyName not in encodersDictionary:
-        #             encodersDictionary[keyName] = currentImputer
-        #     else:
-        #         # Create the encoder object:
-        #         currentImputer = encodersDictionary[keyName]
-        #         # Transform the feature:
-        #         currentDataset[currentFeature] = currentImputer.transform(
-        #             currentDataset[currentFeature].values.reshape(-1, 1))[:, 0]
-
         # Additionally, replace "True" and "False" in "CryoSleep/VIP" Column:
         if currentFeature == "CryoSleep" or currentFeature == "VIP":
             print("Replacing True/False in: ", currentFeature)
@@ -490,6 +574,29 @@ for d, datasetName in enumerate(datasetNames):
                                                                  currentFeature + "-TRUE")
             currentDataset[currentFeature] = replaceFeatureValue(currentDataset[currentFeature], False,
                                                                  currentFeature + "-FALSE")
+    # Prepare the final preprocessed dataset:
+    preprocessedDataset = pd.DataFrame()
+
+    # Economic status:
+    featureName = "EconomicClass"
+    print("Processing feature: ", featureName)
+    preprocessedDataset[featureName] = currentDataset.apply(economic_status, axis=1)
+    # Reset indices:
+    preprocessedDataset = preprocessedDataset.reset_index(drop=True)
+
+    # Scale feature:
+    if datasetName == "train":
+        print(">> Fitting + Transforming: ", featureName)
+        # Set scaler:
+        currentScaler = StandardScaler()
+        preprocessedDataset[featureName] = currentScaler.fit_transform(preprocessedDataset[[featureName]])
+        encodersDictionary[featureName + "-Scaler"] = currentScaler
+        # print(currentScaler.mean_)
+    else:
+        print(">> Transforming: ", featureName)
+        # Get Scaler:
+        currentScaler = encodersDictionary[featureName + "-Scaler"]
+        preprocessedDataset[featureName] = currentScaler.transform(preprocessedDataset[[featureName]])
 
     # Process "Age" Feature:
     # Segment "age" feature into the following bins:
@@ -507,9 +614,6 @@ for d, datasetName in enumerate(datasetNames):
     # Directly One-hot encode categorical features:
     print("One-hot encoding features...")
     categoricalFeatures = ["HomePlanet", "CryoSleep", "Destination", "VIP", "Age-Labeled"]
-
-    # Prepare the final preprocessed dataset:
-    preprocessedDataset = pd.DataFrame()
 
     for currentFeature in categoricalFeatures:
         print("One-hot encoding feature:", currentFeature)
@@ -645,8 +749,12 @@ for d, datasetName in enumerate(datasetNames):
     # Get feature names:
     featureNames = numericalFeatures.columns.values.tolist()
 
+    # Total Spending:
+    featureName = "totalSpending"
+
     # Impute missing values:
     if datasetName == "train":
+
         print(">> Fitting + Transforming: ", featureString)
         # Set imputer,
         # Maybe the strategy here could be median or most frequent, despite both values being 0:
@@ -658,12 +766,43 @@ for d, datasetName in enumerate(datasetNames):
         if featureString not in encodersDictionary:
             encodersDictionary[featureString + "-Imputer"] = currentImputer
 
+        print("Processing feature: ", featureName)
+        # Sum all numeric values:
+        totalSpending = numericalFeatures.sum(axis=1)
+        # Array to DataFrame:
+        totalSpending = pd.DataFrame(totalSpending)
+
+        # Scale feature:
+        print(">> Fitting + Transforming: ", featureName)
+
+        # Set Scaler:
+        currentScaler = StandardScaler()
+        totalSpending = currentScaler.fit_transform(totalSpending)
+
+        # Store scaler into dictionary:
+        encodersDictionary[featureName + "-Scaler"] = currentScaler
+
     else:
+
         print(">> Fitting: ", featureString)
         # Set imputer:
         currentImputer = encodersDictionary[featureString + "-Imputer"]
         # Fit + transform transformer:
         numericalFeatures = currentImputer.transform(numericalFeatures)
+
+        # Total Spending:
+        print("Processing feature: ", featureName)
+        # Sum all numeric values:
+        totalSpending = numericalFeatures.sum(axis=1)
+        # Array to DataFrame:
+        totalSpending = pd.DataFrame(totalSpending)
+
+        # Scale feature:
+        print(">> Transforming: ", featureName)
+
+        # Get Scaler:
+        currentScaler = encodersDictionary[featureName + "-Scaler"]
+        totalSpending = currentScaler.transform(totalSpending)
 
     # Convert array to data frame:
     numericalFeatures = pd.DataFrame(data=numericalFeatures, columns=featureNames)
@@ -744,6 +883,14 @@ for d, datasetName in enumerate(datasetNames):
     # Prepare the final dataframe (processed data + column names):
     tempDataframe = pd.DataFrame(data=tempDataframe, columns=featureNames)
 
+    # Attach total spending
+    tempDataframe["TotalSpending"] = totalSpending
+
+    # # Bin total spending:
+    # spendingBins = 7
+    # spendingLabels = list(range(spendingBins))
+    # tempDataframe["TotalSpending"] = pd.cut(tempDataframe["TotalSpending"], bins=spendingBins, labels=spendingLabels)
+
     # Append/Concat to original dataframe based on left indices:
     preprocessedDataset = preprocessedDataset.join(tempDataframe)
 
@@ -757,196 +904,446 @@ for d, datasetName in enumerate(datasetNames):
             featureCounter += 1
         print("Dropped Features: ", featureCounter)
 
-    # Store in dataset dictionary:
+    # Pass dataset through DNN:
+    if dnnFeature:
+        print("Dataset: ", datasetName, "Computing DNN predictions.")
+        # Feature data frame to tensors:
+        tensorFeatures = tf.convert_to_tensor(preprocessedDataset)
+
+        # Dnn predictions:
+        dnnPredictions = dnnModel.predict(tensorFeatures)
+
+        # Add model predictions to dataset:
+        preprocessedDataset["Dnn"] = dnnPredictions
+
+    # Whole dataset into dictionary of datasets:
     datasets[datasetName]["dataset"] = preprocessedDataset
 
     print("Finished preprocessing for dataset: ", datasetName)
 
-# Fit the model:
-print("Fitting model: ", modelType)
+# Check out correlations:
+corrDataFrame = datasets["train"]["dataset"]
+corrDataFrame = corrDataFrame.join(datasets["train"]["labels"])
 
-# Dictionary of grid parameters:
-logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-1.5, 1, 50)[1:10], "penalty": ["l1", "l2"]}
-# svmParameters = {"kernel": ["rbf"], "C": np.logspace(-2, 10, 2), "gamma": np.logspace(-9, 3, 3)}
-svmParameters = {"kernel": ["rbf"], "C": [2.1544346900318843], "gamma": np.logspace(-2.1, 0.01, 20)[1:10]}
+corrMatrix = corrDataFrame.corr()
 
-modelDictionary = {"SVM":  # svm.SVC(C=0.8, kernel="rbf")
-                       {"Model": svm.SVC(C=2.1544, gamma=0.0614, kernel="rbf", random_state=rng),
-                        # "Model": svm.SVC(C=0.8, kernel="rbf"),
-                        "Params": svmParameters},
-                   "LogisticRegression":
-                       {"Model": LogisticRegression(solver="liblinear", penalty="l2", C=1.0, random_state=rng),
-                        # "Model": LogisticRegression(solver="liblinear", penalty="l1", C=0.05583914701751073,
-                        #                            random_state=rng),
-                        "Params": logisticParameters},
-                   "SGD":  # SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015)
-                       {"Model": SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015, random_state=rng),
-                        "Params": []},
-                   "DecisionTree":
-                       {"Model": DecisionTreeClassifier(criterion="gini", max_depth=4, random_state=rng,
-                                                        max_features=30, max_leaf_nodes=25,
-                                                        min_samples_split=2, min_samples_leaf=5,
-                                                        splitter="best"),
-                        "Params": []},
-                   "RandomForest":
-                       {"Model": RandomForestClassifier(n_estimators=20, max_depth=10, random_state=rng,
-                                                        max_features=10, max_leaf_nodes=30,
-                                                        min_samples_split=20,
-                                                        ),
-                        "Params": []}
-                   }
+corrList = corrMatrix[predictionLabel].sort_values(ascending=False)
 
-# Classifiers that compose the ensemble:
-classifierNames = ["SVM", "LogisticRegression", "DecisionTree"]
+print(corrList)
+# Show total features, subtract the target label:
+print("Total features: ", len(corrList) - 1)
 
-# Prepare the voting classifier:
-if modelType == "VotingClassifier":
-    # Set the classifier list:
-    classifierList = []
-    # Prepare the classifier list:
-    for classifierNames in classifierNames:
-        # Name + model, into the list:
-        classifierTuple = (classifierNames, modelDictionary[classifierNames]["Model"])
-        classifierList.append(classifierTuple)
+if fitShallow:
 
-    # Create the voting classifier
-    votingClassifier = VotingClassifier(estimators=classifierList, voting=svmVoting)
-    if svmVoting == "soft":
-        votingClassifier.named_estimators["SVM"].probability = True
+    # Fit the model:
+    print("Fitting model: ", modelType)
 
-    # Into the model dict:
-    tempDict = {"Model": votingClassifier, "Params": []}
-    modelDictionary["VotingClassifier"] = tempDict
+    # Dictionary of grid parameters:
+    logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-1, 0, 40)[1:16], "penalty": ["l2"]}
+    svmParameters = {"kernel": ["linear", "rbf"],
+                     "C": np.logspace(-1.0, 0.4, 10)}
+    # svmParameters = {"kernel": ["rbf"], "C": [2.1544346900318843], "gamma": np.logspace(-2.1, 0.01, 20)[1:10]}
 
-# Create the classifier model:
-currentModel = modelDictionary[modelType]["Model"]
+    modelDictionary = {"SVM":  # svm.SVC(C=0.8, kernel="rbf")
+        {  # "Model": svm.SVC(C=2.1544, gamma=0.0614, kernel="rbf", random_state=rng),
+            "Model": svm.SVC(C=1.7995852, kernel="rbf", random_state=rng),
+            "Params": svmParameters},
+        "LogisticRegression":
+            {"Model": LogisticRegression(solver="liblinear", penalty="l2", C=0.10608183551394486, random_state=rng),
+             # "Model": LogisticRegression(solver="liblinear", penalty="l1", C=0.05583914701751073,
+             #                            random_state=rng),
+             "Params": logisticParameters},
+        "SGD":  # SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015)
+            {"Model": SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00008, random_state=rng),
+             "Params": []},
+        "DecisionTree":
+            {"Model": DecisionTreeClassifier(criterion="gini", random_state=rng,
+                                             max_depth=4,
+                                             max_features=35,
+                                             # max_leaf_nodes=10,
+                                             # min_samples_split=2,
+                                             # min_samples_leaf=2,
+                                             # splitter="best"
+                                             ),
+             "Params": []},
+        "RandomForest":
+            {"Model": RandomForestClassifier(random_state=rng,
+                                             n_estimators=60,
+                                             max_depth=10,
+                                             max_features=10,
+                                             max_leaf_nodes=30,
+                                             min_samples_split=30,
+                                             ),
+             "Params": []},
+        "GradientBoost":
+            {"Model": GradientBoostingClassifier(random_state=rng,
+                                                 n_estimators=150,
+                                                 max_depth=4,
+                                                 max_features="auto",
+                                                 max_leaf_nodes=20,
+                                                 learning_rate=0.09,
+                                                 n_iter_no_change=10,
+                                                 subsample=1.0
+                                                 ),
+             "Params": []},
 
-# Fit the model to the training data:
-trainLabels = datasets["train"]["labels"].values.ravel()  # From column to row
-trainFeatures = datasets["train"]["dataset"]
-currentModel.fit(trainFeatures, trainLabels)
+        "AdaBoost":
+            {"Model": AdaBoostClassifier(random_state=rng,
+                                         base_estimator=DecisionTreeClassifier(max_depth=2),
+                                         n_estimators=100,
+                                         learning_rate=0.5
+                                         ),
+             "Params": []}
+    }
 
-# If Model is Random Forest, show feature importance:
-# If Model is Random Forest, show feature importance:
-if modelType == "RandomForest" and showFeatureImportance:
-    showFeatures(currentModel, trainFeatures, featureScoreThreshold)
+    # Classifiers that compose the ensemble:"
+    # classifierNames = ["SVM", "LogisticRegression", "RandomForest"]
+    # classifierNames = ["SVM", "LogisticRegression", "DecisionTree"]
 
-# Check out the classifier's accuracy using cross-validation:
-print("[INFO] --- Cross-Validating Classifier...")
-modelAccuracy = cross_val_score(estimator=currentModel, X=trainFeatures, y=trainLabels, cv=cvFolds,
-                                n_jobs=parallelJobs, verbose=3)
+    classifierNames = ["GradientBoost", "AdaBoost"]
 
-# Accuracy for each fold:
-print("[INFO] --- Fold Accuracy:")
-print(" ", modelAccuracy)
-
-print("[INFO] --- Mean & Std Dev Fold Accuracy:")
-cvMean = np.mean(np.array(modelAccuracy))
-cvStdDev = np.std(np.array(modelAccuracy))
-
-print(">> Mu: ", cvMean, "Sigma:", cvStdDev)
-
-# Stratified cross-validation:
-print("[INFO] --- Performing Stratified Cross-Validation...")
-_, stratAccuracy, stratStdDev = stratifiedCrossValidation(currentModel, trainFeatures, trainLabels,
-                                                          randomState=rng, splits=10, testSize=0.2,
-                                                          verbose=False)
-
-if testSplit != -1:
-
-    # Test current model:
-    print("[INFO] --- Testing Classifier...")
-    testLabels = datasets["validation"]["labels"].values.ravel()  # From column to row
-    testFeatures = datasets["validation"]["dataset"]
-
+    # Prepare the voting classifier:
     if modelType == "VotingClassifier":
-        print("Computing Voting Accuracies...")
-        for classifierName, currentClassifier in modelDictionary[modelType]["Model"].named_estimators_.items():
-            print(" ", classifierName, ":", currentClassifier.score(testFeatures, testLabels))
+        # Set the classifier list:
+        classifierList = []
+        # Prepare the classifier list:
+        for classifierName in classifierNames:
+            # Name + model, into the list:
+            classifierTuple = (classifierName, modelDictionary[classifierName]["Model"])
+            classifierList.append(classifierTuple)
 
-    modelScore = currentModel.score(testFeatures, testLabels)
-    print(">> Accuracy:", modelScore)
+        # Create the voting classifier
+        votingClassifier = VotingClassifier(estimators=classifierList, voting=svmVoting)
+        if svmVoting == "soft":
+            if "SVM" in classifierNames:
+                votingClassifier.named_estimators["SVM"].probability = True
 
-    print("[INFO] --- Computing Per sample accuracy...")
+        # Into the model dict:
+        tempDict = {"Model": votingClassifier, "Params": []}
+        modelDictionary["VotingClassifier"] = tempDict
 
-    # Get per sample accuracy:
-    realClasses = perSampleAccuracy(testFeatures, testLabels, currentModel)
+    # Create the classifier model:
+    currentModel = modelDictionary[modelType]["Model"]
 
-    # Get and display results:
-    displayResults(currentModel, testFeatures, testLabels, realClasses, cvMean, cvStdDev, 10)
-    # Display Stratified CV results:
-    print("Strat. Mean Accuracy:", "{:.4f}".format(stratAccuracy), "Strat. Std.Dev:", "{:.4f}".format(stratStdDev))
+    # Fit the model to the training data:
+    trainLabels = datasets["train"]["labels"].values.ravel()  # From column to row
+    trainFeatures = datasets["train"]["dataset"]
 
-    # Plot confusion matrix:
-    plotConfusionMatrix(testLabels, currentModel)
+    if modelType == "SVM":
+        currentModel.probability = True
 
-# Check parameters for grid search:
-gridParameters = modelDictionary[modelType]["Params"]
-# Grid search:
-if runGridSearch and gridParameters:
-    # Hyperparameter optimization using Grid Search:
-    print("[INFO] --- Running Grid Search for: ", modelType)
+    currentModel.fit(trainFeatures, trainLabels)
 
-    optimizedModels = {"SVM": svm.SVC(), "LogisticRegression": LogisticRegression(max_iter=400)}
+    # If Model is Random Forest, show feature importance:
+    # If Model is Random Forest, show feature importance:
+    if modelType == "RandomForest" and showFeatureImportance:
+        showFeatures(currentModel, trainFeatures, featureScoreThreshold)
 
-    # currentModel = LogisticRegression(max_iter=400)
-    optimizedModel = optimizedModels[modelType]
-
-    optimizedModel = RandomizedSearchCV(optimizedModel, gridParameters, cv=3,
-                                        n_jobs=parallelJobs)
-    optimizedModel.fit(trainFeatures, trainLabels)
-
-    # Print hyperparameters & accuracy:
-    print("[INFO] --- Grid Search Best Parameters:")
-    print("", optimizedModel.best_params_)
-
-    # Check out the reggressor accuracy using cross-validation:
-    print("[INFO] --- [Post-Grid Search] Cross-Validating Classifier...")
-    modelAccuracy = cross_val_score(estimator=optimizedModel, X=trainFeatures, y=trainLabels,
-                                    cv=cvFolds,
+    # Check out the classifier's accuracy using cross-validation:
+    print("[INFO] --- Cross-Validating Classifier...")
+    modelAccuracy = cross_val_score(estimator=currentModel, X=trainFeatures, y=trainLabels, cv=cvFolds,
                                     n_jobs=parallelJobs, verbose=3)
 
     # Accuracy for each fold:
-    print("[INFO] --- [Post-Grid Search] Fold Accuracy:")
+    print("[INFO] --- Fold Accuracy:")
     print(" ", modelAccuracy)
 
-    print("[INFO] --- [Post-Grid Search] Mean & Std Dev Fold Accuracy:")
+    print("[INFO] --- Mean & Std Dev Fold Accuracy:")
     cvMean = np.mean(np.array(modelAccuracy))
     cvStdDev = np.std(np.array(modelAccuracy))
 
     print(">> Mu: ", cvMean, "Sigma:", cvStdDev)
 
-    # Get per sample accuracy:
-    realClasses = perSampleAccuracy(testFeatures, testLabels, optimizedModel)
+    # Stratified cross-validation:
+    print("[INFO] --- Performing Stratified Cross-Validation...")
+    runStratifiedCV = not (skipStratifiedCV) and not (computeThreshold)
+    _, stratAccuracy, stratStdDev = stratifiedCrossValidation(currentModel, trainFeatures, trainLabels,
+                                                              randomState=rng, splits=10, testSize=0.2,
+                                                              runCV=runStratifiedCV,
+                                                              verbose=False)
 
-    # Get and display results:
-    displayResults(optimizedModel, testFeatures, testLabels, realClasses, cvMean, cvStdDev, 3)
+    # Store the best model so far:
+    bestModel["Model"] = currentModel
+    bestModel["Accuracy"] = cvMean
 
-    # Plot confusion matrix:
-    plotConfusionMatrix(testLabels, optimizedModel)
+    if testSplit != -1:
 
-print(">> Computing final predictions...")
+        # Test current model:
+        print("[INFO] --- Testing Classifier: ", modelType)
+        print("Params: ", currentModel.get_params())
 
-# Fit the model to the test data:
-testFeatures = datasets["test"]["dataset"]
-finalPredictions = currentModel.predict(testFeatures)
+        if modelType == "GradientBoost":
+            print("Trees used: ", currentModel.n_estimators_)
 
-# Convert numpy array to dataframe:
-finalPredictionsDataFrame = pd.DataFrame(finalPredictions)
+        testLabels = datasets["validation"]["labels"].values.ravel()  # From column to row
+        testFeatures = datasets["validation"]["dataset"]
 
-# Transpose original array (row to column):
-finalPredictions = finalPredictions.reshape(-1, 1)
+        if modelType == "VotingClassifier":
+            print("Computing Voting Accuracies...")
+            for classifierName, currentClassifier in modelDictionary[modelType]["Model"].named_estimators_.items():
+                print(" ", classifierName, ":", currentClassifier.score(testFeatures, testLabels))
 
-# Change 1 -> True, 0 -> False:
-finalPredictionsDataFrame = replaceFeatureValue(finalPredictionsDataFrame, 1, True)
-finalPredictionsDataFrame = replaceFeatureValue(finalPredictionsDataFrame, 0, False)
+        modelScore = currentModel.score(testFeatures, testLabels)
+        print(">> Validation Accuracy:", modelScore)
 
-# Attach predictions:
-passengerList[predictionLabel] = finalPredictionsDataFrame
+        # List of how many times the results must be run:
+        runResults = [False]
 
-# Write CSV:
-if writeOutfile:
-    print(">> Writing output file: ", outFilename)
-    passengerList.to_csv(outFilename, index=False)
+        if computeThreshold:
+            if modelType != "VotingClassifier":
+                runResults.append(True)
+            else:
+                if svmVoting == "soft":
+                    runResults.append(True)
+                else:
+                    print("svmVoting is set to hard. Skipping best threshold...")
+
+        # Best Validation Accuracy (so far):
+        bestAccuracy = modelScore
+        bestModel["Model"] = currentModel
+        bestModel["Accuracy"] = bestAccuracy
+
+        # Perform the result-gathering process:
+        for r, computeProbas in enumerate(runResults):
+
+            print("Running results: ", r + 1)
+
+            classificationThreshold = 0.0
+
+            if computeProbas:
+                # Get prediction probabilities:
+                predictionProbabilities = currentModel.predict_proba(testFeatures)
+                predictionProbabilities = predictionProbabilities[:, 1]
+                # Compute the best classification threshold:
+                classificationThreshold = bestThreshold(testLabels, predictionProbabilities)
+                print("Best thresh: ", classificationThreshold)
+                predictionProbabilities = (predictionProbabilities >= classificationThreshold).astype(int)
+
+            else:
+                # Get predictions:
+                predictionProbabilities = currentModel.predict(testFeatures)
+
+            print("[INFO] --- Computing Per sample accuracy...")
+            # Get per sample accuracy:
+            realClasses = perSampleAccuracy(predictionProbabilities, testLabels, False)
+            print("Real Class labels counters: ")
+            print(realClasses)
+
+            # Get and display results:
+            resultsDict = displayResults(predictionProbabilities, testLabels, modelScore, cvMean, cvStdDev, 10)
+
+            # Get accuracy post-probabilities test (if performed)
+            currentAccuracy = resultsDict["cmAccuracy"]
+            if currentAccuracy > bestAccuracy:
+                # Store model & accuracy:
+                bestModel["Model"] = currentModel
+                bestModel["Accuracy"] = currentAccuracy
+                bestModel["Threshold"] = classificationThreshold
+                print("Got better model: ", bestModel)
+
+            # Display Stratified CV results:
+            print("Strat. Mean Accuracy:", "{:.4f}".format(stratAccuracy), "Strat. Std.Dev:",
+                  "{:.4f}".format(stratStdDev))
+
+            # Plot confusion matrix:
+            plotConfusionMatrix(testLabels, predictionProbabilities, currentModel)
+
+        # Check parameters for grid search:
+        gridParameters = modelDictionary[modelType]["Params"]
+        # Grid search:
+        if runGridSearch and gridParameters:
+            # Hyperparameter optimization using Grid Search:
+            print("[INFO] --- Running Grid Search for: ", modelType)
+
+            optimizedModels = {"SVM": svm.SVC(random_state=rng),
+                               "LogisticRegression": LogisticRegression(random_state=rng, max_iter=400)}
+
+            optimizedModel = optimizedModels[modelType]
+
+            optimizedModel = RandomizedSearchCV(optimizedModel, gridParameters, cv=3,
+                                                n_jobs=parallelJobs)
+            optimizedModel.fit(trainFeatures, trainLabels)
+
+            # Print hyperparameters & accuracy:
+            print("[INFO] --- Grid Search Best Parameters:")
+            print("", optimizedModel.best_params_)
+
+            # Check out the reggressor accuracy using cross-validation:
+            print("[INFO] --- [Post-Grid Search] Cross-Validating Classifier...")
+            modelAccuracy = cross_val_score(estimator=optimizedModel, X=trainFeatures, y=trainLabels,
+                                            cv=cvFolds,
+                                            n_jobs=parallelJobs, verbose=3)
+
+            # Accuracy for each fold:
+            print("[INFO] --- [Post-Grid Search] Fold Accuracy:")
+            print(" ", modelAccuracy)
+
+            print("[INFO] --- [Post-Grid Search] Mean & Std Dev Fold Accuracy:")
+            cvMean = np.mean(np.array(modelAccuracy))
+            cvStdDev = np.std(np.array(modelAccuracy))
+
+            print(">> Mu: ", cvMean, "Sigma:", cvStdDev)
+
+            # Get score:
+            modelScore = optimizedModel.score(testFeatures, testLabels)
+
+            # Get predictions:
+            modelPredictions = optimizedModel.predict(testFeatures)
+
+            # Get per sample accuracy:
+            print("[INFO] --- Computing Per sample accuracy...")
+            # Get per sample accuracy:
+            realClasses = perSampleAccuracy(modelPredictions, testLabels, False)
+            print("Real Class labels counters: ")
+            print(realClasses)
+
+            # Get and display results:
+            resultsDict = displayResults(modelPredictions, testLabels, modelScore, cvMean, cvStdDev, 3)
+
+            currentAccuracy = resultsDict["cmAccuracy"]
+            if currentAccuracy > bestAccuracy:
+                # Store model & accuracy:
+                bestModel["Model"] = currentModel
+                bestModel["Accuracy"] = currentAccuracy
+                bestModel["Threshold"] = 0.0
+                print("Got better model: ", bestModel.__class__.__name__)
+
+            # Plot confusion matrix:
+            plotConfusionMatrix(testLabels, modelPredictions, optimizedModel)
+
+if runDNN:
+    print("Running DNN...")
+
+    # Get train, validation datasets & labels:
+    trainFeatures = datasets["train"]["dataset"]
+    trainLabels = datasets["train"]["labels"]
+
+    testFeatures = datasets["validation"]["dataset"]
+    testLabels = datasets["validation"]["labels"]
+
+    # Feature data frames to tensors:
+    trainFeatures = tf.convert_to_tensor(trainFeatures)
+    testFeatures = tf.convert_to_tensor(testFeatures)
+
+    # Set the dnn architecture:
+    model = keras.Sequential(
+        [
+            layers.Dense(32, activation="relu"),
+            layers.Dropout(0.2),
+            layers.Dense(16, activation="relu"),
+            layers.Dropout(0.2),
+            layers.Dense(8, activation="relu"),
+            layers.Dropout(0.2),
+            layers.Dense(4, activation="relu"),
+            layers.Dropout(0.2),
+            layers.Dense(1, activation="sigmoid")
+
+        ]
+    )
+
+    # Compile the model:
+
+    optimizer = RMSprop(learning_rate=dnnLearningRate)
+    model.compile(optimizer=optimizer, loss="binary_crossentropy", metrics=["accuracy"])
+
+    # Model Checkpoint,
+    # Model weights are saved at the end of every epoch, if it's the best seen so far:
+    checkpointFilename = "bestSoFar.keras"
+    modelCheckpoint = ModelCheckpoint(filepath=projectPath + checkpointFilename,
+                                      save_weights_only=False,
+                                      monitor="val_accuracy",
+                                      mode="max", save_best_only=True,
+                                      verbose=0)
+
+    # Fit the model:
+    history = model.fit(trainFeatures,
+                        trainLabels,
+                        epochs=totalEpochs,
+                        batch_size=dnnBatchSize,
+                        validation_data=(testFeatures, testLabels),
+                        callbacks=[modelCheckpoint])
+
+    # Plot the learning curves:
+    # Plot the training loss and accuracy
+    plt.style.use("ggplot")
+    plt.figure()
+
+    # Get the historical data:
+    N = np.arange(0, totalEpochs)
+
+    # Plot values:
+    plt.plot(N, history.history["loss"], label="train_loss")
+    plt.plot(N, history.history["val_loss"], label="val_loss")
+    plt.plot(N, history.history["accuracy"], label="train_acc")
+    plt.plot(N, history.history["val_accuracy"], label="val_acc")
+    plt.title("Training Loss and Accuracy on Dataset")
+    plt.xlabel("Epoch #")
+    plt.ylabel("Loss/Accuracy")
+    plt.legend(loc="lower left")
+
+    # Save plot to disk:
+    plotPath = projectPath + "lossGraph.png"
+    print("Saving model loss plot to:" + plotPath)
+    plt.savefig(plotPath)
+    plt.show()
+
+if getFinalPredictions:
+
+    print(">> Computing final predictions...")
+    print(">> Best model was: ", bestModel["Model"].__class__.__name__, "(" + str(bestModel["Accuracy"]) + ")")
+
+    # Fit the model to the test data:
+    testFeatures = datasets["test"]["dataset"]
+
+    # Pass dataset through DNN:
+    if dnnFeature:
+        print("Computing DNN predictions.")
+
+        # Feature data frame to tensors:
+        tensorFeatures = tf.convert_to_tensor(testFeatures)
+
+        # Dnn predictions:
+        dnnPredictions = dnnModel.predict(tensorFeatures)
+
+        # Add model predictions to dataset:
+        testFeatures["Dnn"] = dnnPredictions
+
+    # Check threshold:
+    finalModel = bestModel["Model"]
+    binaryThreshold = bestModel["Threshold"]
+
+    # Predict using default threshold or best threshold:
+    epsilon = 0.001
+    thresholdDifference = abs(binaryThreshold - 0.0)
+    if thresholdDifference <= epsilon:
+        print("Predicting final values with default binary threshold.")
+        finalPredictions = finalModel.predict(testFeatures)
+    else:
+        print("Predicting final values with best binary threshold: ", binaryThreshold)
+        finalPredictions = (finalModel.predict_proba(testFeatures)[:, 1] >= binaryThreshold).astype(int)
+
+    # Convert numpy array to dataframe:
+    finalPredictionsDataFrame = pd.DataFrame(finalPredictions)
+
+    # Transpose original array (row to column):
+    finalPredictions = finalPredictions.reshape(-1, 1)
+
+    # Change 1 -> True, 0 -> False:
+    finalPredictionsDataFrame = replaceFeatureValue(finalPredictionsDataFrame, 1, True)
+    finalPredictionsDataFrame = replaceFeatureValue(finalPredictionsDataFrame, 0, False)
+
+    # Attach predictions:
+    passengerList[predictionLabel] = finalPredictionsDataFrame
+
+    # Write CSV:
+    if writeOutfile:
+        # Get classifier name:
+        classifierName = bestModel["Model"].__class__.__name__
+        # Get date NOW:
+        dateNow = time.strftime("%Y-%m-%d-%H%M")
+
+        outFilename = projectPath + outFilename + "-" + classifierName + "_" + dateNow + ".csv"
+        print(">> Writing output file: ", outFilename)
+        passengerList.to_csv(outFilename, index=False)
 
 print(">> Done. Fuck you.")
