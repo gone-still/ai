@@ -1,9 +1,9 @@
 # File        :   spaceshipTitanic.py
-# Version     :   1.2.0
+# Version     :   2.1.0
 # Description :   Solution for Kaggle"s Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
-# Date:       :   Nov 16, 2023
+# Date:       :   Nov 20, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -31,7 +31,7 @@ from collections import Counter
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.ensemble import IsolationForest
 
@@ -76,7 +76,7 @@ def processAge(inputDataset, ageBins, binLabels):
     return labeledAge
 
 
-def economic_status(person):
+def economicStatus(person):
     # Creating new column
 
     # List of tests:
@@ -107,6 +107,63 @@ def economic_status(person):
         return 3
     else:
         return 0
+
+
+def getTransportProbas(person):
+    # CryoSleep:
+    # CryoSleep -> False (Low prob of being transported)
+    # CryoSleep -> True (High prob of being transported)
+
+    # Home Planet:
+    # Europa -> 1 (High prob of being transported)
+    # Earth -> 1 (Low prob of being transported)
+
+    # Age Group:
+    # AgeGroup1-True -> 1 (High prob of being transported)
+    # AgeGroup2-False -> 1 (Low prob of being transported)
+
+    highProba = ["CryoSleep-TRUE", "Europa", "AgeGroup1-True"]
+    lowProba = ["CryoSleep-FALSE", "Earth", "AgeGroup2-False"]
+    featureList = [highProba, lowProba]
+
+    # Stores feature count for high and low proba features:
+    counters = [0, 0]
+
+    # Count if there's a match:
+    for f, currentFeatureList in enumerate(featureList):
+        for currentFeature in currentFeatureList:
+            currentValue = int(person[currentFeature])
+            if currentValue == 1:
+                counters[f] += 1
+    # print(counters)
+    return counters
+
+
+def transportedLikelihood(person, encode=False):
+    # featureList = ["HighProba", "LowProba"]
+
+    # Get features
+    highProba = person["HighProba"]
+    lowProba = person["LowProba"]
+
+    # Compute difference:
+    featureDifference = highProba - lowProba
+    outValue = featureDifference
+
+    # Check if the feature needs encoding:
+    if encode:
+        # Feature is negative (Likely not transported):
+        if featureDifference < 0:
+            outValue = -1
+        else:
+            # Feature is 0 (Can't tell if transported or not):
+            if featureDifference == 0:
+                outValue = 0
+            # Feature is positive (Likely transported):
+            else:
+                outValue = 1
+
+    return outValue
 
 
 # Performs stratified cross-validation:
@@ -358,12 +415,138 @@ def bestThreshold(y_test_list_norm, y_pred_proba_norm):
     return best_threshold
 
 
+# Standardizes a feature:
+def standardizeFeature(featureName, dataset, datasetName, scalerType, encoderDictionary):
+    print("-> Normalizing Feature: ", featureName, " Type: ", scalerType)
+
+    # Get feature type (should be a str or a list):
+    isString = isinstance(featureName, str)
+    if not isString:
+        dictName = '-'.join(featureName)
+    else:
+        dictName = featureName
+
+    if datasetName == "train":
+
+        print(">> [Train] Fitting + Transforming: ", featureName)
+
+        # Set scaler:
+        print("Using scaler -> ", scalerType)
+        if scalerType == "MinMax":
+            currentScaler = MinMaxScaler()
+        elif scalerType == "Standard":
+            currentScaler = StandardScaler()
+        else:
+            # Option not found:
+            raise TypeError("standarizeNumerical>> Error: Received unsupported scaling type: " + scalerType)
+
+        # Fit + transform:
+        if isString:
+            dataset[featureName] = currentScaler.fit_transform(dataset[[featureName]])
+        else:
+            dataset[featureName] = currentScaler.fit_transform(dataset[featureName])
+
+        # Store transformer into dict:
+        encoderDictionary[dictName + "-Scaler"] = currentScaler
+
+    else:
+
+        print(">> [Val/Test] Transforming: ", featureName)
+        # Get Scaler:
+        currentScaler = encoderDictionary[dictName + "-Scaler"]
+
+        # Transform feature:
+        if isString:
+            dataset[featureName] = currentScaler.transform(dataset[[featureName]])
+        else:
+            dataset[featureName] = currentScaler.transform(dataset[featureName])
+
+
+# Imputes missing data:
+def imputeFeature(featureName, dataset, datasetName, imputerConfig, encoderDictionary):
+    print("-> Imputing Feature: ", featureName, ", Imputer Config:", imputerConfig)
+
+    # Get feature type (should be a str or a list):
+    isString = isinstance(featureName, str)
+    if not isString:
+        dictName = '-'.join(featureName)
+    else:
+        dictName = featureName
+
+    # Get imputer config:
+    missingValue = imputerConfig["missingValue"]
+    imputingStrategy = imputerConfig["strategy"]
+
+    if datasetName == "train":
+
+        print(">> [Train] Fitting + Transforming: ", featureName)
+
+        # Set imputer:
+        currentImputer = SimpleImputer(missing_values=missingValue, strategy=imputingStrategy)
+
+        # Fit + transform feature:
+        if isString:
+            dataset[featureName] = currentImputer.fit_transform(dataset[[featureName]])
+        else:
+            dataset[featureName] = currentImputer.fit_transform(dataset[featureName])
+
+        # Store transformer into dict:
+        encoderDictionary[dictName + "-Imputer"] = currentImputer
+
+    else:
+
+        print(">> [Val/Test] Transforming: ", featureName)
+
+        # Get imputer:
+        currentImputer = encoderDictionary[dictName + "-Imputer"]
+
+        # Transform feature:
+        if isString:
+            dataset[featureName] = currentImputer.transform(dataset[[featureName]])
+        else:
+            dataset[featureName] = currentImputer.transform(dataset[featureName])
+
+
+# One-hot encode feature:
+def oheFeature(featureName, inputDataset, outputDataset, datasetName, encoderDictionary):
+    print("-> One-hot encoding feature:", featureName)
+
+    if datasetName == "train":
+        print(">> [Train] Fitting + Transforming: ", featureName)
+        # Create the encoder object:
+        currentEncoder = OneHotEncoder()
+        # Fit + transform to feature:
+        encodedFeature = currentEncoder.fit_transform(inputDataset[[featureName]])
+
+        # Store encoder into dictionary:
+        encoderDictionary[featureName + "-OHE"] = currentEncoder
+
+    else:
+        print(">> [Val/Test] Transforming: ", featureName)
+        # Create the encoder object:
+        currentEncoder = encoderDictionary[featureName + "-OHE"]
+        # Transform the feature:
+        encodedFeature = currentEncoder.transform(inputDataset[[featureName]])
+
+    # Convert to array:
+    encodedFeature = encodedFeature.toarray()
+
+    # Print categories:
+    print("OHE:" + currentFeature, "Categories: ", currentEncoder.categories_)
+
+    # Append to output dataset:
+    outputDataset[currentEncoder.categories_[0]] = encodedFeature
+
+    # Return the new categories:
+    return currentEncoder.categories_[0]
+
+
 # Project Path:
 projectPath = "D://dataSets//spaceTitanic//"
 # Output Path:
 outFilename = "outPredictions"
 # Write final CSV?
-writeOutfile = True
+writeOutfile = False
 
 # File Names:
 datasetNames = ["train", "validation", "test"]
@@ -376,7 +559,22 @@ predictionLabel = "Transported"
 
 # Script options
 randomSeed = 42
+
+# Global rng object:
 rng = np.random.RandomState(randomSeed)
+
+# Normalize binary / categorical variables:
+normalizeBinary = False
+normalizeCategorical = True
+categoricalScaler = "MinMax"
+numericalScaler = "Standard"
+binaryScaler = "Standard"
+
+# Should original numerical features be attached to dataset?
+includeNumerical = True
+
+# Number of bin partitions of each numerical feature:
+numericalBins = 4
 
 # Test split:
 # -1 uses all train dataset for training (no validation):
@@ -384,30 +582,31 @@ testSplit = 0.2
 
 # Model type:
 modelType = "VotingClassifier"
-svmVoting = "soft"
+svmVoting = "hard"
 
+# Run final dataset through best predictor:
 getFinalPredictions = False
-fitShallow = False
+
+# Fit shallow predictors:
+fitShallow = True
 
 # Use dnn to predict a new feature?
-dnnFeature = False
+dnnVote = False
 
 # Should the DNN be run?
-runDNN = True
+runDNN = False
 # DNN epochs:
 totalEpochs = 100
 # Batch size:
-dnnBatchSize = 64
+dnnBatchSize = 32
 # Learning rate:
-dnnLearningRate = 0.0004
+dnnLearningRate = 0.0002
 
 # Store best model here:
 bestModel = {"Model": None, "Accuracy": 0.0, "Threshold": 0.0}
 
 # Compute the best threshold?
 computeThreshold = False
-
-numericalBins = 5
 
 # Skip stratified CV:
 skipStratifiedCV = True
@@ -419,15 +618,18 @@ runGridSearch = False
 parallelJobs = 5
 
 # Feature Selection:
-showFeatureImportance = True
+showFeatureImportance = False
 featureScoreThreshold = 0.98
+
+# Drop features in list?
+filterFeatures = False
+
+# The list of features to drop:
 # featuresList = ["C", "Infant", "Child", "NA-Age", "55 Cancri e", "NA-CryoSleep", "B", "TRAPPIST-1e", "Young Adult",
 #                 "Adult", "D", "PSO J318.5-22", "VIP-FALSE", "Senior", "NA-Cabin-2", "NA-VIP", "NA-HomePlanet",
 #                 "NA-Destination", "NA-Cabin-0", "VIP-TRUE", "Teenager", "A", "T"]
 
-# The list of features to drop:
 featuresList = ["T"]
-filterFeatures = False
 
 # Set console format:
 pd.set_option("display.max_rows", 500)
@@ -449,18 +651,6 @@ datasets = {"train": {},
             "validation": {},
             "test": {}}
 
-# Load DNN model:
-modelFilename = "dnnModel.keras"
-modelPath = projectPath + modelFilename
-fileExists = os.path.exists(modelPath)
-
-if not fileExists:
-    raise ValueError("Model file: " + modelPath + " does not exist.")
-else:
-    print("Loading model from: " + modelPath)
-
-dnnModel = load_model(modelPath)
-
 # Store here the test passenger columns for final CSV:
 passengerList = pd.DataFrame()
 
@@ -473,6 +663,10 @@ for d, datasetName in enumerate(datasetNames):
 
         # Read the cvs file:
         currentDataset = pd.read_csv(projectPath + datasetName + fileExtension)
+
+        # plt.figure(figsize=(5, 5))
+        # sns.histplot(currentDataset, x='Age', hue='Transported', kde=True)
+        # plt.show()
 
         # Create test split?
         if testSplit != -1:
@@ -580,26 +774,15 @@ for d, datasetName in enumerate(datasetNames):
     # Economic status:
     featureName = "EconomicClass"
     print("Processing feature: ", featureName)
-    preprocessedDataset[featureName] = currentDataset.apply(economic_status, axis=1)
+    preprocessedDataset[featureName] = currentDataset.apply(economicStatus, axis=1)
     # Reset indices:
     preprocessedDataset = preprocessedDataset.reset_index(drop=True)
 
     # Scale feature:
-    if datasetName == "train":
-        print(">> Fitting + Transforming: ", featureName)
-        # Set scaler:
-        currentScaler = StandardScaler()
-        preprocessedDataset[featureName] = currentScaler.fit_transform(preprocessedDataset[[featureName]])
-        encodersDictionary[featureName + "-Scaler"] = currentScaler
-        # print(currentScaler.mean_)
-    else:
-        print(">> Transforming: ", featureName)
-        # Get Scaler:
-        currentScaler = encodersDictionary[featureName + "-Scaler"]
-        preprocessedDataset[featureName] = currentScaler.transform(preprocessedDataset[[featureName]])
+    if normalizeCategorical:
+        standardizeFeature(featureName, preprocessedDataset, datasetName, categoricalScaler, encodersDictionary)
 
     # Process "Age" Feature:
-    # Segment "age" feature into the following bins:
     #   "NA" -> [-1, 0)
     #   Infant -> [0, 5)
     #   Child -> [5, 12)
@@ -607,213 +790,198 @@ for d, datasetName in enumerate(datasetNames):
     #   Young Adult -> [18, 35)
     #   Adult -> [35, 60)
     #   Senior -> [60, 100)
+
     ageBins = [-1, 0, 5, 12, 18, 35, 60, 100]
     binLabels = ["NA-Age", "Infant", "Child", "Teenager", "Young Adult", "Adult", "Senior"]
-    currentDataset["Age-Labeled"] = processAge(currentDataset, ageBins, binLabels)
+
+    # Replace "NaN" with "-0.5":
+    currentDataset["Age"] = replaceFeatureValue(currentDataset[["Age"]], np.NaN, -0.5)
+    # Segment feature into bins:
+    labeledAge = pd.cut(currentDataset["Age"], bins=ageBins, labels=binLabels)
+    # Convert series to data frame:
+    currentDataset["Age-Labeled"] = pd.DataFrame(labeledAge)
+
+    # Impute missing ages:
+    featureName = "Age"
+    imputerConfig = {"missingValue": -0.5, "strategy": "median"}
+    imputeFeature(featureName, currentDataset, datasetName, imputerConfig, encodersDictionary)
+
+    # Age groups feature:
+    #   Group 1 -> [0, 18) Likely to be transported
+    #   Group 2 -> [18, 26) Likely to be not transported
+    #   Group 3 -> [26, 100) Could either be transported or not
+
+    # The missing imputed median seams to be 27, careful to where bin
+    # this value:
+
+    ageBins = [-0.5, 18, 26, 100]
+    binLabels = ["AgeGroup1-True", "AgeGroup2-False", "AgeGroup3-Either"]
+    # Segment feature into bins:
+    ageGroups = pd.cut(currentDataset["Age"], bins=ageBins, labels=binLabels)
+    # Convert series to data frame:
+    currentDataset["AgeGroups"] = pd.DataFrame(ageGroups)
 
     # Directly One-hot encode categorical features:
     print("One-hot encoding features...")
-    categoricalFeatures = ["HomePlanet", "CryoSleep", "Destination", "VIP", "Age-Labeled"]
+
+    categoricalFeatures = ["HomePlanet", "CryoSleep", "Destination", "VIP", "Age-Labeled", "AgeGroups"]
 
     for currentFeature in categoricalFeatures:
         print("One-hot encoding feature:", currentFeature)
+        # OHE feature:
+        featureCategories = oheFeature(currentFeature, currentDataset, preprocessedDataset, datasetName,
+                                       encodersDictionary)
+        # Standardize feature?
+        if normalizeBinary:
+            standardizeFeature(featureCategories, preprocessedDataset, datasetName, binaryScaler, encodersDictionary)
 
-        if datasetName == "train":
-            print(">> Fitting + Transforming: ", currentFeature)
-            # Create the encoder object:
-            currentEncoder = OneHotEncoder()
-            # Fit + transform to feature:
-            encodedFeature = currentEncoder.fit_transform(currentDataset[[currentFeature]])
+    # Create transported likelihood features:
+    featureName = "TransportedLikelihood"
+    print("Processing feature: ", featureName)
 
-            # Store encoder into dictionary:
-            if currentFeature not in encodersDictionary:
-                encodersDictionary[currentFeature] = currentEncoder
+    # Create the 2 new columns: "HighProba" and "LowProba"
+    preprocessedDataset[["HighProba", "LowProba"]] = [0, 0]
+    # Apply the rules for both columns
+    preprocessedDataset[["HighProba", "LowProba"]] = preprocessedDataset.apply(getTransportProbas, axis=1,
+                                                                               result_type='expand')
 
-        else:
-            print(">> Fitting: ", currentFeature)
-            # Create the encoder object:
-            currentEncoder = encodersDictionary[currentFeature]
-            # Transform the feature:
-            encodedFeature = currentEncoder.transform(currentDataset[[currentFeature]])
+    # Add a new feature: TransportedLikelihood
+    outputCategories = True  # Whether the output is plain differences or categories (-1, 0, 1):
+    preprocessedDataset["TraHood"] = preprocessedDataset[["HighProba", "LowProba"]].apply(
+        transportedLikelihood, args=(outputCategories,), axis=1)
 
-        # Convert to array:
-        encodedFeature = encodedFeature.toarray()
-
-        # Print categories:
-        print(currentFeature, "Categories: ", currentEncoder.categories_)
-
-        # Append to categorical dataset:
-        preprocessedDataset[currentEncoder.categories_[0]] = encodedFeature
+    # Scaling of transported likelihood features:
+    if normalizeCategorical:
+        # "HighProba", "LowProba" are categories:
+        standardizeFeature(["HighProba", "LowProba"], preprocessedDataset, datasetName, categoricalScaler,
+                           encodersDictionary)
+        # "TraHood" is categories:
+        standardizeFeature("TraHood", preprocessedDataset, datasetName, categoricalScaler, encodersDictionary)
 
     # Process "Cabin" Feature:
     # Split cabin feature into 3 sub-features:
     cabinSplit = currentDataset["Cabin"].str.split("/", expand=True)
 
+    # Get number of columns (should be 3 features):
+    subFeatures = cabinSplit.shape[1]
+
     # Dataframe shallow copy:
     tempDataframe = cabinSplit
 
-    # Transformers list:
-    cabinTransformers = ["-Imputer", "-Scaler"]
+    # Name of sub-features:
+    cabinFeatures = ["CabinDeck", "CabinNum", "CabinSide"]
+
+    # Change temp dataframe columns to new feature names:
+    tempDataframe.rename(
+        columns={0: cabinFeatures[0], 1: cabinFeatures[1], 2: cabinFeatures[2]},
+        inplace=True,
+    )
+
+    # The type of scaler for the "cabinNum" feature, which is a category...
+    cabinScaler = "Standard"
+
+    # Decides if NAs should be imputed or should be handled in a new column (NAs)
+    imputeMissing = False
 
     # For the three sub-features created before:
-    for i in range(3):
+    for i in range(subFeatures):
 
         # Set new feature name:
-        featureString = "NA-Cabin-" + str(i)
+        featureString = cabinFeatures[i]
         print("Processing feature:", featureString)
 
         if i != 1:
 
-            # Change NaNs for "NA-Cabin" + str(i)
-            tempDataframe[[i]] = replaceFeatureValue(tempDataframe[[i]], np.NaN, featureString)
-
-            if datasetName == "train":
-                print(">> Fitting + Transforming: ", featureString)
-                # Create encoder object and apply it to the dataframe:
-                currentEncoder = OneHotEncoder()
-                currentEncoded = currentEncoder.fit_transform(tempDataframe[[i]])
-
-                # Store encoder into dictionary:
-                if featureString not in encodersDictionary:
-                    encodersDictionary[featureString] = currentEncoder
-
+            # NAs handling:
+            if not imputeMissing:
+                # Change NaNs for featureString + "-NA
+                print("Extending NAs into a new column...")
+                tempDataframe[featureString] = replaceFeatureValue(tempDataframe[featureString], np.NaN,
+                                                                   featureString + "-NA")
             else:
-                print(">> Fitting: ", featureString)
-                # Get encoder:
-                currentEncoder = encodersDictionary[featureString]
-                # Transform feature:
-                currentEncoded = currentEncoder.transform(tempDataframe[[i]])
+                # Impute missing with most frequent value:
+                print("Imputing NAs with most frequent value...")
+                imputerConfig = {"missingValue": np.NaN, "strategy": "most_frequent"}
+                imputeFeature(featureString, tempDataframe[[i]], datasetName, imputerConfig, encodersDictionary)
 
-            # Encoding to array:
-            currentEncoded = currentEncoded.toarray()
+            # One-hot encoding:
+            oheFeature(featureString, tempDataframe, tempDataframe, datasetName, encodersDictionary)
 
-            # Check out categories:
-            print(featureString, "->", currentEncoder.categories_)
-
-            # Attach/append to outDataframe:
-            tempDataframe[currentEncoder.categories_[0]] = currentEncoded
+            # Standardize feature?
+            if normalizeBinary:
+                standardizeFeature(featureString, tempDataframe, datasetName, binaryScaler, encodersDictionary)
 
         else:
 
+            # Extract the feature into one temp series (should be CabinNum):
+            tempFeature = tempDataframe[featureString]
+
+            # Series to DF:
+            tempFeature = pd.DataFrame(tempFeature, columns=[featureString])
+
             # Impute missing values with median:
-            tempFeature = tempDataframe[[i]]
+            imputerConfig = {"missingValue": np.NaN, "strategy": "median"}
+            imputeFeature(featureString, tempFeature, datasetName, imputerConfig, encodersDictionary)
 
-            if datasetName == "train":
-                print(">> Fitting + Transforming: ", cabinTransformers[0])
-                # Set imputer:
-                currentImputer = SimpleImputer(missing_values=np.NaN, strategy="median")
-                # Fit + transform feature:
-                tempFeature = currentImputer.fit_transform(tempFeature)
-                encodersDictionary[featureString + cabinTransformers[0]] = currentImputer
-
-                # Scale feature:
-                currentScaler = StandardScaler()
-                tempFeature = currentScaler.fit_transform(tempFeature)
-                encodersDictionary[featureString + cabinTransformers[1]] = currentScaler
-
-                # # Store transformers into dictionary:
-                # for n in cabinTransformers:
-                #     dictKey = featureString + n
-                #     if dictKey not in encodersDictionary:
-                #         encodersDictionary[dictKey] = currentImputer
-            else:
-                print(">> Fitting: ", cabinTransformers[0])
-                for n in cabinTransformers:
-                    transformerName = featureString + n
-                    print("Applying transformer: ", transformerName)
-                    # Set transformer:
-                    currentTransformer = encodersDictionary[transformerName]
-                    # Transform feature:
-                    tempFeature = currentTransformer.transform(tempFeature)
+            # Scale feature... but "CabinNum" is a category...
+            standardizeFeature(featureString, tempFeature, datasetName, cabinScaler, encodersDictionary)
 
             # Attach/append to outDataframe:
-            tempDataframe["CabinNum"] = tempFeature
+            tempDataframe[featureString + "-Std"] = tempFeature
 
     # Produce the final dataset slicing the temp dataset.
-    # Slice from the new columns to the ends, include all rows:
+    # Slice from the new columns to the end, include all rows:
     tempDataframe = tempDataframe.iloc[:, 3:]
 
     # Reset indices:
     tempDataframe = tempDataframe.reset_index(drop=True)
 
     # Append/Concat to original dataframe based on left indices:
-    # trainDatasetCopy = pd.merge(trainDatasetCopy, cabinSplit, left_index=True, right_index=True)
     preprocessedDataset = preprocessedDataset.join(tempDataframe)
 
-    # Numerical features:
-    featureString = "Numerical Features"
-    threshList = ["lowerThresh", "upperThresh"]
-
     # Slice numerical features:
-    numericalFeatures = currentDataset.loc[:, "RoomService":"VRDeck"]
+    numericalFeatures = currentDataset.loc[:, "RoomService":"VRDeck"].reset_index(drop=True)
     # Get feature names:
     featureNames = numericalFeatures.columns.values.tolist()
 
-    # Total Spending:
-    featureName = "totalSpending"
-
     # Impute missing values:
-    if datasetName == "train":
+    # Maybe the strategy here could be median or most frequent, despite both values being 0:
+    imputerConfig = {"missingValue": np.NaN, "strategy": "most_frequent"}
+    imputeFeature(featureNames, numericalFeatures, datasetName, imputerConfig, encodersDictionary)
 
-        print(">> Fitting + Transforming: ", featureString)
-        # Set imputer,
-        # Maybe the strategy here could be median or most frequent, despite both values being 0:
-        currentImputer = SimpleImputer(missing_values=np.NaN, strategy="most_frequent")
-        # Fit + transform transformer:
-        numericalFeatures = currentImputer.fit_transform(numericalFeatures)
+    # Should these features be included in the final dataset?
+    if includeNumerical:
+        # Do not change the original DF:
+        tempDataframe = numericalFeatures.copy()
+        # Before appending the features, scale them:
+        standardizeFeature(featureNames, tempDataframe, datasetName, numericalScaler, encodersDictionary)
+        # Append to final dataset:
+        preprocessedDataset = preprocessedDataset.join(tempDataframe)
 
-        # Store imputer into dictionary:
-        if featureString not in encodersDictionary:
-            encodersDictionary[featureString + "-Imputer"] = currentImputer
+        # I'm free:
+        del tempDataframe
 
-        print("Processing feature: ", featureName)
-        # Sum all numeric values:
-        totalSpending = numericalFeatures.sum(axis=1)
-        # Array to DataFrame:
-        totalSpending = pd.DataFrame(totalSpending)
+    # Compute "Total Spending" feature:
+    featureName = "TotalSpending"
+    print("Processing feature: ", featureName)
 
-        # Scale feature:
-        print(">> Fitting + Transforming: ", featureName)
+    # Sum all numeric values:
+    totalSpending = numericalFeatures.sum(axis=1)
 
-        # Set Scaler:
-        currentScaler = StandardScaler()
-        totalSpending = currentScaler.fit_transform(totalSpending)
+    # Array to DataFrame, drop indices:
+    totalSpending = pd.DataFrame(totalSpending, columns=[featureName]).reset_index(drop=True)
 
-        # Store scaler into dictionary:
-        encodersDictionary[featureName + "-Scaler"] = currentScaler
+    # Scale feature:
+    standardizeFeature(featureName, totalSpending, datasetName, numericalScaler, encodersDictionary)
 
-    else:
+    # Clean outliers from numerical features:
+    threshList = ["lowerThresh", "upperThresh"]
 
-        print(">> Fitting: ", featureString)
-        # Set imputer:
-        currentImputer = encodersDictionary[featureString + "-Imputer"]
-        # Fit + transform transformer:
-        numericalFeatures = currentImputer.transform(numericalFeatures)
-
-        # Total Spending:
-        print("Processing feature: ", featureName)
-        # Sum all numeric values:
-        totalSpending = numericalFeatures.sum(axis=1)
-        # Array to DataFrame:
-        totalSpending = pd.DataFrame(totalSpending)
-
-        # Scale feature:
-        print(">> Transforming: ", featureName)
-
-        # Get Scaler:
-        currentScaler = encodersDictionary[featureName + "-Scaler"]
-        totalSpending = currentScaler.transform(totalSpending)
-
-    # Convert array to data frame:
-    numericalFeatures = pd.DataFrame(data=numericalFeatures, columns=featureNames)
-    # Set number of bins to segment the numerical fatures:
-    binLabels = list(range(numericalBins))
+    # Convert array to data frame, drop indices
+    numericalFeatures = pd.DataFrame(data=numericalFeatures, columns=featureNames).reset_index(drop=True)
 
     # Cleaned data (w/o outliers):
     cleanedOutliers = pd.DataFrame()
-
-    # Append/Concat to original dataframe based on left indices:
-    # preprocessedDataset = preprocessedDataset.join(numericalFeatures)
 
     # Process the numerical features:
     for currentFeature in featureNames:
@@ -851,45 +1019,29 @@ for d, datasetName in enumerate(datasetNames):
                                                    np.where(numericalFeatures[currentFeature] < lowerWhisker,
                                                             lowerWhisker, numericalFeatures[currentFeature]))
 
+        # Set number of bins to segment the numerical features:
+        binLabels = list(range(numericalBins))
+
         # Segment feature into len(binLabels) bins:
         totalBins = len(binLabels)
         encodedFeature = pd.cut(cleanedOutliers[currentFeature], bins=totalBins, labels=binLabels)
 
         # Append new feature:
-        numericalFeatures[currentFeature + "-Bined"] = encodedFeature
+        numericalFeatures[currentFeature + "-Binned"] = encodedFeature
 
     # Get the binned features only:
-    tempDataframe = numericalFeatures.loc[:, "RoomService-Bined":"VRDeck-Bined"]
+    tempDataframe = numericalFeatures.loc[:, "RoomService-Binned":"VRDeck-Binned"]
 
-    # Scale features:
-    if datasetName == "train":
-        print(">> Fitting + Transforming: ", featureString)
-        # Set scaler:
-        currentScaler = StandardScaler()
-        # Fit + transform:
-        tempDataframe = currentScaler.fit_transform(tempDataframe)
-
-        # Store scaler into dictionary:
-        if featureString not in encodersDictionary:
-            encodersDictionary[featureString + "-Scaler"] = currentScaler
-
-    else:
-        print(">> Fitting: ", featureString)
-        # Set scaler:
-        currentScaler = encodersDictionary[featureString + "-Scaler"]
-        # Transform:
-        tempDataframe = currentScaler.transform(tempDataframe)
-
-    # Prepare the final dataframe (processed data + column names):
-    tempDataframe = pd.DataFrame(data=tempDataframe, columns=featureNames)
+    # Scale features, which have been binned and are now categories:
+    featureString = "Numerical Features"
+    if normalizeCategorical:
+        # Get feature names:
+        featureNames = tempDataframe.columns.values.tolist()
+        # Standardize:
+        standardizeFeature(featureNames, tempDataframe, datasetName, categoricalScaler, encodersDictionary)
 
     # Attach total spending
     tempDataframe["TotalSpending"] = totalSpending
-
-    # # Bin total spending:
-    # spendingBins = 7
-    # spendingLabels = list(range(spendingBins))
-    # tempDataframe["TotalSpending"] = pd.cut(tempDataframe["TotalSpending"], bins=spendingBins, labels=spendingLabels)
 
     # Append/Concat to original dataframe based on left indices:
     preprocessedDataset = preprocessedDataset.join(tempDataframe)
@@ -904,17 +1056,11 @@ for d, datasetName in enumerate(datasetNames):
             featureCounter += 1
         print("Dropped Features: ", featureCounter)
 
-    # Pass dataset through DNN:
-    if dnnFeature:
-        print("Dataset: ", datasetName, "Computing DNN predictions.")
-        # Feature data frame to tensors:
-        tensorFeatures = tf.convert_to_tensor(preprocessedDataset)
-
-        # Dnn predictions:
-        dnnPredictions = dnnModel.predict(tensorFeatures)
-
-        # Add model predictions to dataset:
-        preprocessedDataset["Dnn"] = dnnPredictions
+    # Get a quick description of the data:
+    print(preprocessedDataset.info())
+    # Shape:
+    print("Dataset:", datasetName, " Samples: ", preprocessedDataset.shape[0], " Features: ",
+          preprocessedDataset.shape[1])
 
     # Whole dataset into dictionary of datasets:
     datasets[datasetName]["dataset"] = preprocessedDataset
@@ -939,13 +1085,13 @@ if fitShallow:
     print("Fitting model: ", modelType)
 
     # Dictionary of grid parameters:
-    logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 10), "penalty": ["l2"]}
+    logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 10), "penalty": ["l2", "l1"]}
 
-    svmParameters = {"kernel": ["rbf"], "C": np.logspace(-0.1, 0.5, 10),
-                     "gamma": [0.09027252, 0.09261187, 0.09501185, 0.09747402, 0.1]}
+    svmParameters = {"kernel": ["rbf"], "C": np.logspace(-0.2, 0.1, 10)[1:11],
+                     }
 
-    modelDictionary = {"SVM":  # svm.SVC(C=0.8, kernel="rbf")
-                           {"Model": svm.SVC(C=1.0, kernel="rbf", gamma=0.09, random_state=rng),
+    modelDictionary = {"SVM":
+                           {"Model": svm.SVC(C=1.0, kernel="rbf", random_state=rng),
                             # {"Model": svm.SVC(C=0.11, kernel="rbf", gamma=0.06, random_state=rng),
                             # "Model": svm.SVC(C=1.7995852, kernel="rbf", random_state=rng),
                             "Params": svmParameters},
@@ -956,53 +1102,56 @@ if fitShallow:
                             #                            random_state=rng),
                             "Params": logisticParameters},
                        "SGD":  # SGDClassifier(loss="hinge", penalty="elasticnet", alpha=0.00015)
-                           {"Model": SGDClassifier(loss="hinge", penalty="l1", alpha=0.0001, random_state=rng),
+                           {"Model": SGDClassifier(loss="hinge", penalty="elasticnet", random_state=rng),
                             "Params": []},
                        "DecisionTree":
                            {"Model": DecisionTreeClassifier(criterion="gini", random_state=rng,
-                                                            # max_depth=4,
-                                                            max_features=30,
-                                                            # max_leaf_nodes=2,
-                                                            min_samples_split=10,
-                                                            # min_samples_leaf=1,
+                                                            max_depth=10,
+                                                            max_features=40,
+                                                            # max_leaf_nodes=20,
+                                                            min_samples_split=2,
+                                                            min_samples_leaf=1,
                                                             splitter="best"
                                                             ),
                             "Params": []},
                        "RandomForest":
                            {"Model": RandomForestClassifier(random_state=rng,
-                                                            n_estimators=60,
-                                                            max_depth=10,
-                                                            max_features=10,
-                                                            max_leaf_nodes=30,
-                                                            min_samples_split=30,
+                                                            n_estimators=48,
+                                                            max_depth=20,
+                                                            max_features=44,
+                                                            # max_leaf_nodes=20,
+                                                            min_samples_split=15,
                                                             ),
                             "Params": []},
                        "GradientBoost":
                            {"Model": GradientBoostingClassifier(random_state=rng,
                                                                 n_estimators=150,
                                                                 max_depth=4,
-                                                                max_features="auto",
-                                                                max_leaf_nodes=20,
-                                                                learning_rate=0.09,
-                                                                n_iter_no_change=10,
-                                                                subsample=1.0
+                                                                max_features=40,
+                                                                # max_leaf_nodes=20,
+                                                                learning_rate=0.1,
+                                                                n_iter_no_change=15,
+                                                                subsample=0.9
                                                                 ),
                             "Params": []},
 
                        "AdaBoost":
                            {"Model": AdaBoostClassifier(random_state=rng,
-                                                        base_estimator=DecisionTreeClassifier(max_depth=2),
+                                                        base_estimator=DecisionTreeClassifier(max_depth=1),
                                                         n_estimators=100,
-                                                        learning_rate=0.5
+                                                        learning_rate=1.0
                                                         ),
                             "Params": []}
                        }
 
-    # Classifiers that compose the ensemble:"
+    # Classifiers that compose the ensemble:
+
     # classifierNames = ["SVM", "LogisticRegression", "RandomForest"]
     # classifierNames = ["SVM", "LogisticRegression", "DecisionTree"]
 
-    classifierNames = ["GradientBoost", "AdaBoost"]
+    # classifierNames = ["SVM", "DecisionTree"]
+
+    classifierNames = ["GradientBoost", "RandomForest", "SVM"]
 
     # classifierNames = ["SVM", "LogisticRegression"]
 
@@ -1091,16 +1240,33 @@ if fitShallow:
         print(">> Validation Accuracy:", modelScore)
 
         # List of how many times the results must be run:
-        runResults = [False]
+        runResults = [1]
 
         if computeThreshold:
             if modelType != "VotingClassifier":
-                runResults.append(True)
+                runResults.append(2)
             else:
                 if svmVoting == "soft":
-                    runResults.append(True)
+                    runResults.append(2)
                 else:
                     print("svmVoting is set to hard. Skipping best threshold...")
+
+        if dnnVote:
+
+            # Load DNN model:
+            modelFilename = "dnnModel.keras"
+            modelPath = projectPath + modelFilename
+            fileExists = os.path.exists(modelPath)
+
+            if not fileExists:
+                raise ValueError("Model file: " + modelPath + " does not exist.")
+            else:
+                print("Loading model from: " + modelPath)
+
+            dnnModel = load_model(modelPath)
+
+            # Attach results type to results list:
+            runResults.append(3)
 
         # Best Validation Accuracy (so far):
         bestAccuracy = modelScore
@@ -1108,13 +1274,19 @@ if fitShallow:
         bestModel["Accuracy"] = bestAccuracy
 
         # Perform the result-gathering process:
-        for r, computeProbas in enumerate(runResults):
+        for r, resultsType in enumerate(runResults):
 
             print("Running results: ", r + 1)
 
             classificationThreshold = 0.0
 
-            if computeProbas:
+            if resultsType == 1:
+                print(">> Running Results Type: 1 (Default threshold)")
+                # Get predictions:
+                predictionProbabilities = currentModel.predict(testFeatures)
+
+            elif resultsType == 2:
+                print(">> Running Results Type: 2 (Best threshold)")
                 # Get prediction probabilities:
                 predictionProbabilities = currentModel.predict_proba(testFeatures)
                 predictionProbabilities = predictionProbabilities[:, 1]
@@ -1123,11 +1295,31 @@ if fitShallow:
                 print("Best thresh: ", classificationThreshold)
                 predictionProbabilities = (predictionProbabilities >= classificationThreshold).astype(int)
 
-            else:
-                # Get predictions:
-                predictionProbabilities = currentModel.predict(testFeatures)
+            elif resultsType == 3:
+
+                print(">> Running Results Type: 3 (Shallow Classifiers + DNN)")
+
+                # Get prediction probabilities:
+                predictionProbabilities = currentModel.predict_proba(testFeatures)
+                predictionProbabilities = predictionProbabilities[:, 1]
+                # Row to column:
+                predictionProbabilities = predictionProbabilities.reshape(-1, 1)
+
+                # Feature data frame to tensors:
+                tensorFeatures = tf.convert_to_tensor(testFeatures)
+                # Dnn predictions:
+                dnnPredictions = dnnModel.predict(tensorFeatures)
+
+                # Average both predictions:
+                predictionAverage = (dnnPredictions + predictionProbabilities) / 2.0
+                # Set to output variable:
+                predictionProbabilities = (predictionAverage >= 0.5).astype(int)
+                predictionProbabilities = predictionProbabilities.flatten()
+
+            # Common results displaying:
 
             print("[INFO] --- Computing Per sample accuracy...")
+
             # Get per sample accuracy:
             realClasses = perSampleAccuracy(predictionProbabilities, testLabels, False)
             print("Real Class labels counters: ")
@@ -1154,6 +1346,7 @@ if fitShallow:
 
         # Check parameters for grid search:
         gridParameters = modelDictionary[modelType]["Params"]
+
         # Grid search:
         if runGridSearch and gridParameters:
             # Hyperparameter optimization using Grid Search:
@@ -1308,19 +1501,6 @@ if getFinalPredictions:
 
     # Fit the model to the test data:
     testFeatures = datasets["test"]["dataset"]
-
-    # Pass dataset through DNN:
-    if dnnFeature:
-        print("Computing DNN predictions.")
-
-        # Feature data frame to tensors:
-        tensorFeatures = tf.convert_to_tensor(testFeatures)
-
-        # Dnn predictions:
-        dnnPredictions = dnnModel.predict(tensorFeatures)
-
-        # Add model predictions to dataset:
-        testFeatures["Dnn"] = dnnPredictions
 
     # Check threshold:
     finalModel = bestModel["Model"]
