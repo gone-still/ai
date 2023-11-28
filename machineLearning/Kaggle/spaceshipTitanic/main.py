@@ -1,9 +1,9 @@
 # File        :   spaceshipTitanic.py
-# Version     :   2.1.0
+# Version     :   2.1.2
 # Description :   Solution for Kaggle"s Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
-# Date:       :   Nov 20, 2023
+# Date:       :   Nov 27, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -596,11 +596,11 @@ dnnVote = False
 # Should the DNN be run?
 runDNN = False
 # DNN epochs:
-totalEpochs = 100
+totalEpochs = 130  # Overfits @ 130
 # Batch size:
 dnnBatchSize = 32
 # Learning rate:
-dnnLearningRate = 0.0002
+dnnLearningRate = 0.00025
 
 # Store best model here:
 bestModel = {"Model": None, "Accuracy": 0.0, "Threshold": 0.0}
@@ -1425,15 +1425,15 @@ if runDNN:
     # Set the dnn architecture:
     model = keras.Sequential(
         [
-            layers.Dense(units=64, kernel_initializer="he_normal"),
+            layers.Dense(units=56, kernel_initializer="he_normal"),
             layers.BatchNormalization(),
             layers.ReLU(),
-            layers.Dropout(0.5),
+            layers.Dropout(0.4),
 
-            layers.Dense(units=32, kernel_initializer="he_normal"),
+            layers.Dense(units=24, kernel_initializer="he_normal"),
             layers.BatchNormalization(),
             layers.ReLU(),
-            layers.Dropout(0.5),
+            layers.Dropout(0.4),
 
             # layers.Dense(units=16, kernel_initializer="he_normal"),
             # layers.BatchNormalization(),
@@ -1458,13 +1458,19 @@ if runDNN:
                                       mode="max", save_best_only=True,
                                       verbose=0)
 
+    # Early Stop:
+    earlyStop = EarlyStopping(monitor="val_loss", patience=10, min_delta=0.0001, verbose=1)
+
+    # Into the callbacks list:
+    callbackList = [modelCheckpoint, earlyStop]
+
     # Fit the model:
     history = model.fit(trainFeatures,
                         trainLabels,
                         epochs=totalEpochs,
                         batch_size=dnnBatchSize,
                         validation_data=(valFeatures, valLabels),
-                        callbacks=[modelCheckpoint])
+                        callbacks=callbackList)
 
     loss, accuracy = model.evaluate(valFeatures, valLabels)
     print("Test loss:", loss)
@@ -1476,6 +1482,8 @@ if runDNN:
     plt.figure()
 
     # Get the historical data:
+    totalEpochs = len(history.history["loss"])
+    print("DNN training ran for total epochs: ", totalEpochs)
     N = np.arange(0, totalEpochs)
 
     # Plot values:
