@@ -1,5 +1,5 @@
 # File        :   spaceshipTitanic.py
-# Version     :   2.1.2
+# Version     :   2.1.3
 # Description :   Solution for Kaggle"s Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
@@ -18,7 +18,7 @@ from tensorflow.keras.optimizers import RMSprop, Adam
 from tensorflow.keras import regularizers
 from tensorflow.keras.models import load_model
 
-from tensorflow.keras.callbacks import ReduceLROnPlateau
+from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.callbacks import ModelCheckpoint
 
 import random
