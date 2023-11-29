@@ -1,9 +1,9 @@
 # File        :   spaceshipTitanic.py
-# Version     :   2.1.3
+# Version     :   2.1.7
 # Description :   Solution for Kaggle"s Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
-# Date:       :   Nov 27, 2023
+# Date:       :   Nov 28, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -76,6 +76,7 @@ def processAge(inputDataset, ageBins, binLabels):
     return labeledAge
 
 
+# Creates economic status feature:
 def economicStatus(person):
     # Creating new column
 
@@ -109,6 +110,7 @@ def economicStatus(person):
         return 0
 
 
+# Creates transported probabilities feature:
 def getTransportProbas(person):
     # CryoSleep:
     # CryoSleep -> False (Low prob of being transported)
@@ -122,7 +124,7 @@ def getTransportProbas(person):
     # AgeGroup1-True -> 1 (High prob of being transported)
     # AgeGroup2-False -> 1 (Low prob of being transported)
 
-    highProba = ["CryoSleep-TRUE", "Europa", "AgeGroup1-True"]
+    highProba = ["CryoSleep-TRUE", "Europa", "AgeGroup1-True", "CabinGroup-4"]
     lowProba = ["CryoSleep-FALSE", "Earth", "AgeGroup2-False"]
     featureList = [highProba, lowProba]
 
@@ -139,6 +141,7 @@ def getTransportProbas(person):
     return counters
 
 
+# Creates transported likelihood feature:
 def transportedLikelihood(person, encode=False):
     # featureList = ["HighProba", "LowProba"]
 
@@ -162,6 +165,27 @@ def transportedLikelihood(person, encode=False):
             # Feature is positive (Likely transported):
             else:
                 outValue = 1
+
+    return outValue
+
+
+# Creates Cabin Range feature:
+def cabinRange(person, featureNames, encodingDict):
+    # Default value is "0" (neither high nor low prob of being transported),
+    # assuming the group code is not found  in the dictionary:
+    outValue = 0
+
+    for currentGroup in featureNames:
+        # Compute groupCount, get number from string name:
+        groupCount = int(currentGroup.split("-")[1])
+        # Get value from cell:
+        currentValue = int(person[currentGroup])
+        # Check value from cell and assign code:
+        if currentValue == 1:
+            if groupCount in encodingDict:
+                # Group is in dict, output code:
+                outValue = encodingDict[groupCount]
+                break
 
     return outValue
 
@@ -392,6 +416,7 @@ def showFeatures(currentModel, trainFeatures, maxSCoreThreshold=0.95):
     plt.show()
 
 
+# Computes the best binary threshold:
 def bestThreshold(y_test_list_norm, y_pred_proba_norm):
     scores = []
     thresholds = []
@@ -486,9 +511,18 @@ def imputeFeature(featureName, dataset, datasetName, imputerConfig, encoderDicti
 
         # Fit + transform feature:
         if isString:
-            dataset[featureName] = currentImputer.fit_transform(dataset[[featureName]])
+            outArray = currentImputer.fit_transform(dataset[[featureName]])
         else:
-            dataset[featureName] = currentImputer.fit_transform(dataset[featureName])
+            outArray = currentImputer.fit_transform(dataset[featureName])
+
+        # check return type:
+        returnDtype = outArray.dtype
+        if returnDtype != "O":
+            # Not Pandas object (mixed types):
+            dataset[featureName] = outArray
+        else:
+            # Pandas Object (mixed types):
+            dataset[featureName] = pd.DataFrame(outArray)
 
         # Store transformer into dict:
         encoderDictionary[dictName + "-Imputer"] = currentImputer
@@ -502,9 +536,18 @@ def imputeFeature(featureName, dataset, datasetName, imputerConfig, encoderDicti
 
         # Transform feature:
         if isString:
-            dataset[featureName] = currentImputer.transform(dataset[[featureName]])
+            outArray = currentImputer.transform(dataset[[featureName]])
         else:
-            dataset[featureName] = currentImputer.transform(dataset[featureName])
+            outArray = currentImputer.transform(dataset[featureName])
+
+        # check return type:
+        returnDtype = outArray.dtype
+        if returnDtype != "O":
+            # Not Pandas object (mixed types):
+            dataset[featureName] = outArray
+        else:
+            # Pandas Object (mixed types):
+            dataset[featureName] = pd.DataFrame(outArray)
 
 
 # One-hot encode feature:
@@ -546,7 +589,7 @@ projectPath = "D://dataSets//spaceTitanic//"
 # Output Path:
 outFilename = "outPredictions"
 # Write final CSV?
-writeOutfile = False
+writeOutfile = True
 
 # File Names:
 datasetNames = ["train", "validation", "test"]
@@ -558,7 +601,7 @@ fileExtension = ".csv"
 predictionLabel = "Transported"
 
 # Script options
-randomSeed = 42
+randomSeed = 420
 
 # Global rng object:
 rng = np.random.RandomState(randomSeed)
@@ -582,10 +625,10 @@ testSplit = 0.2
 
 # Model type:
 modelType = "VotingClassifier"
-svmVoting = "hard"
+svmVoting = "soft"
 
 # Run final dataset through best predictor:
-getFinalPredictions = False
+getFinalPredictions = True
 
 # Fit shallow predictors:
 fitShallow = True
@@ -835,30 +878,9 @@ for d, datasetName in enumerate(datasetNames):
         if normalizeBinary:
             standardizeFeature(featureCategories, preprocessedDataset, datasetName, binaryScaler, encodersDictionary)
 
-    # Create transported likelihood features:
-    featureName = "TransportedLikelihood"
-    print("Processing feature: ", featureName)
-
-    # Create the 2 new columns: "HighProba" and "LowProba"
-    preprocessedDataset[["HighProba", "LowProba"]] = [0, 0]
-    # Apply the rules for both columns
-    preprocessedDataset[["HighProba", "LowProba"]] = preprocessedDataset.apply(getTransportProbas, axis=1,
-                                                                               result_type='expand')
-
-    # Add a new feature: TransportedLikelihood
-    outputCategories = True  # Whether the output is plain differences or categories (-1, 0, 1):
-    preprocessedDataset["TraHood"] = preprocessedDataset[["HighProba", "LowProba"]].apply(
-        transportedLikelihood, args=(outputCategories,), axis=1)
-
-    # Scaling of transported likelihood features:
-    if normalizeCategorical:
-        # "HighProba", "LowProba" are categories:
-        standardizeFeature(["HighProba", "LowProba"], preprocessedDataset, datasetName, categoricalScaler,
-                           encodersDictionary)
-        # "TraHood" is categories:
-        standardizeFeature("TraHood", preprocessedDataset, datasetName, categoricalScaler, encodersDictionary)
-
     # Process "Cabin" Feature:
+    print("Processing Cabin Features...")
+
     # Split cabin feature into 3 sub-features:
     cabinSplit = currentDataset["Cabin"].str.split("/", expand=True)
 
@@ -877,11 +899,22 @@ for d, datasetName in enumerate(datasetNames):
         inplace=True,
     )
 
+    # Reset indices:
+    tempDataframe = tempDataframe.reset_index(drop=True)
+
     # The type of scaler for the "cabinNum" feature, which is a category...
     cabinScaler = "Standard"
+    # The type of scaler for the "CabinNum-Ranges" feature, which is a category...
+    cabinRangeScaler = "MinMax"
 
     # Decides if NAs should be imputed or should be handled in a new column (NAs)
     imputeMissing = False
+
+    # Include the CabinNum-Ranges new feature (column)?
+    computeCabinNumRanges = False
+
+    # Store here the cabinGroupsNames:
+    cabinGroupsFeatures = []
 
     # For the three sub-features created before:
     for i in range(subFeatures):
@@ -890,6 +923,7 @@ for d, datasetName in enumerate(datasetNames):
         featureString = cabinFeatures[i]
         print("Processing feature:", featureString)
 
+        # Process all 3 features:
         if i != 1:
 
             # NAs handling:
@@ -902,7 +936,7 @@ for d, datasetName in enumerate(datasetNames):
                 # Impute missing with most frequent value:
                 print("Imputing NAs with most frequent value...")
                 imputerConfig = {"missingValue": np.NaN, "strategy": "most_frequent"}
-                imputeFeature(featureString, tempDataframe[[i]], datasetName, imputerConfig, encodersDictionary)
+                imputeFeature(featureString, tempDataframe, datasetName, imputerConfig, encodersDictionary)
 
             # One-hot encoding:
             oheFeature(featureString, tempDataframe, tempDataframe, datasetName, encodersDictionary)
@@ -923,21 +957,123 @@ for d, datasetName in enumerate(datasetNames):
             imputerConfig = {"missingValue": np.NaN, "strategy": "median"}
             imputeFeature(featureString, tempFeature, datasetName, imputerConfig, encodersDictionary)
 
-            # Scale feature... but "CabinNum" is a category...
+            print("Segmenting feature: ", featureString)
+
+            # Set bin labels:
+            binRanges = [-1, 300, 600, 900, 1200, 1500, 1800, 2000]
+
+            # Create the bins list (featureName + group):
+            baseFeatureName = "CabinGroup"
+            # binLabels = []
+            for r in range(len(binRanges) - 1):
+                cabinGroupsFeatures.append(baseFeatureName + "-" + str(r + 1))
+
+            # Segment feature into bins:
+            segmentedCabin = pd.cut(tempFeature[featureString], bins=binRanges, labels=cabinGroupsFeatures)
+            # Convert series to data frame:
+            segmentedCabin = pd.DataFrame(segmentedCabin).reset_index(drop=True)
+            # Rename new feature:
+            segmentedCabin = segmentedCabin.rename(columns={featureString: baseFeatureName})
+
+            # Directly One-hot encode categorical features:
+            print("One-hot encoding feature: ", baseFeatureName)
+
+            # OHE feature:
+            cabinCategories = oheFeature(baseFeatureName, segmentedCabin, segmentedCabin, datasetName,
+                                         encodersDictionary)
+            # Standardize feature?
+            if normalizeBinary:
+                standardizeFeature(baseFeatureName, segmentedCabin, datasetName, binaryScaler, encodersDictionary)
+
+            # Set column slice:
+            columnName = cabinGroupsFeatures[-1]
+
+            if computeCabinNumRanges:
+                print("Computing Cabin Ranges...")
+
+                # Create Cabin Num Ranges column/feature:
+                featureName = baseFeatureName + "-Ranges"
+                print("Processing feature: ", featureName)
+
+                # Cabin Groups with high chance of being transported:
+                trueGroups = [1, 4]
+                # Cabin Groups with low chance of being transported:
+                falseGroups = [2, 6]
+
+                # The groups list:
+                # True Groups get encoded with 1, False groups with -1. Unsure with 0
+                groupsList = [(trueGroups, 1), (falseGroups, -1)]
+
+                # Set the encoding dict:
+                encodingDict = {}
+                for currentGroup in groupsList:
+                    numberList = currentGroup[0]
+                    code = currentGroup[1]
+                    for g in numberList:
+                        # Create dict entry:
+                        encodingDict[g] = code
+
+                # Compute the ranges:
+                segmentedCabin[featureName] = segmentedCabin.apply(cabinRange,
+                                                                   args=(cabinGroupsFeatures, encodingDict,),
+                                                                   axis=1)
+
+                # Scale the ranges:
+                standardizeFeature(featureName, segmentedCabin, datasetName, cabinRangeScaler, encodersDictionary)
+
+                # Set end of the slice:
+                columnName = featureName
+
+            # Attach/append new cabin features to outDataframe:
+            tempDataframe = tempDataframe.join(segmentedCabin.loc[:, "CabinGroup-1":columnName])
+
+            # Scale CabinNum feature... but "CabinNum" is a category...
             standardizeFeature(featureString, tempFeature, datasetName, cabinScaler, encodersDictionary)
 
-            # Attach/append to outDataframe:
+            # Attach/append CabinNum to outDataframe:
             tempDataframe[featureString + "-Std"] = tempFeature
 
     # Produce the final dataset slicing the temp dataset.
     # Slice from the new columns to the end, include all rows:
     tempDataframe = tempDataframe.iloc[:, 3:]
 
-    # Reset indices:
-    tempDataframe = tempDataframe.reset_index(drop=True)
-
     # Append/Concat to original dataframe based on left indices:
     preprocessedDataset = preprocessedDataset.join(tempDataframe)
+
+    # Create transported likelihood features:
+    featureName = "TransportedLikelihood"
+    print("Processing feature: ", featureName)
+
+    # Remove the Cabin Groups used to create the new features?
+    removeCabinFeatures = False
+
+    # Create the 2 new columns: "HighProba" and "LowProba"
+    preprocessedDataset[["HighProba", "LowProba"]] = [0, 0]
+    # Apply the rules for both columns
+    preprocessedDataset[["HighProba", "LowProba"]] = preprocessedDataset.apply(getTransportProbas, axis=1,
+                                                                               result_type='expand')
+
+    # Add a new feature: TransportedLikelihood
+    outputCategories = True  # Whether the output is plain differences or categories (-1, 0, 1):
+    preprocessedDataset["TraHood"] = preprocessedDataset[["HighProba", "LowProba"]].apply(
+        transportedLikelihood, args=(outputCategories,), axis=1)
+
+    # Scaling of transported likelihood features:
+    if normalizeCategorical:
+        # "HighProba", "LowProba" are categories:
+        standardizeFeature(["HighProba", "LowProba"], preprocessedDataset, datasetName, categoricalScaler,
+                           encodersDictionary)
+        # "TraHood" is categories:
+        standardizeFeature("TraHood", preprocessedDataset, datasetName, categoricalScaler, encodersDictionary)
+
+    # Remove cabin features?
+    if removeCabinFeatures and cabinGroupsFeatures:
+
+        print("Removing Cabin Groups features...")
+        for featureName in cabinGroupsFeatures:
+            # Drop the feature:
+            print("Dropping: ", featureName)
+            preprocessedDataset = preprocessedDataset.drop(featureName, axis=1)
 
     # Slice numerical features:
     numericalFeatures = currentDataset.loc[:, "RoomService":"VRDeck"].reset_index(drop=True)
@@ -1087,8 +1223,7 @@ if fitShallow:
     # Dictionary of grid parameters:
     logisticParameters = {"solver": ["liblinear"], "C": np.logspace(-2, 2, 10), "penalty": ["l2", "l1"]}
 
-    svmParameters = {"kernel": ["rbf"], "C": np.logspace(-0.2, 0.1, 10)[1:11],
-                     }
+    svmParameters = {"kernel": ["linear", "rbf"], "C": np.linspace(1.0, 5.0, num=10)}
 
     modelDictionary = {"SVM":
                            {"Model": svm.SVC(C=1.0, kernel="rbf", random_state=rng),
@@ -1125,8 +1260,8 @@ if fitShallow:
                             "Params": []},
                        "GradientBoost":
                            {"Model": GradientBoostingClassifier(random_state=rng,
-                                                                n_estimators=150,
-                                                                max_depth=4,
+                                                                n_estimators=200,
+                                                                max_depth=3,
                                                                 max_features=40,
                                                                 # max_leaf_nodes=20,
                                                                 learning_rate=0.1,
@@ -1138,22 +1273,14 @@ if fitShallow:
                        "AdaBoost":
                            {"Model": AdaBoostClassifier(random_state=rng,
                                                         base_estimator=DecisionTreeClassifier(max_depth=1),
-                                                        n_estimators=100,
-                                                        learning_rate=1.0
+                                                        n_estimators=500,
+                                                        learning_rate=0.3
                                                         ),
                             "Params": []}
                        }
 
     # Classifiers that compose the ensemble:
-
-    # classifierNames = ["SVM", "LogisticRegression", "RandomForest"]
-    # classifierNames = ["SVM", "LogisticRegression", "DecisionTree"]
-
-    # classifierNames = ["SVM", "DecisionTree"]
-
-    classifierNames = ["GradientBoost", "RandomForest", "SVM"]
-
-    # classifierNames = ["SVM", "LogisticRegression"]
+    classifierNames = ["GradientBoost", "AdaBoost", "SVM"]
 
     # Prepare the voting classifier:
     if modelType == "VotingClassifier":
@@ -1541,6 +1668,10 @@ if getFinalPredictions:
     if writeOutfile:
         # Get classifier name:
         classifierName = bestModel["Model"].__class__.__name__
+        # Concatenate type of voting if VotingClassifier:
+        if modelType == "VotingClassifier":
+            classifierName = classifierName + "-" + svmVoting
+
         # Get date NOW:
         dateNow = time.strftime("%Y-%m-%d-%H%M")
 
