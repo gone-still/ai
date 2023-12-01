@@ -1,9 +1,9 @@
 # File        :   spaceshipTitanic.py
-# Version     :   2.1.7
+# Version     :   2.2.0
 # Description :   Solution for Kaggle"s Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
-# Date:       :   Nov 28, 2023
+# Date:       :   Nov 30, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -557,7 +557,7 @@ def oheFeature(featureName, inputDataset, outputDataset, datasetName, encoderDic
     if datasetName == "train":
         print(">> [Train] Fitting + Transforming: ", featureName)
         # Create the encoder object:
-        currentEncoder = OneHotEncoder()
+        currentEncoder = OneHotEncoder(handle_unknown="ignore")
         # Fit + transform to feature:
         encodedFeature = currentEncoder.fit_transform(inputDataset[[featureName]])
 
@@ -588,8 +588,6 @@ def oheFeature(featureName, inputDataset, outputDataset, datasetName, encoderDic
 projectPath = "D://dataSets//spaceTitanic//"
 # Output Path:
 outFilename = "outPredictions"
-# Write final CSV?
-writeOutfile = True
 
 # File Names:
 datasetNames = ["train", "validation", "test"]
@@ -628,7 +626,9 @@ modelType = "VotingClassifier"
 svmVoting = "soft"
 
 # Run final dataset through best predictor:
-getFinalPredictions = True
+getFinalPredictions = False
+# Write final CSV?
+writeOutfile = False
 
 # Fit shallow predictors:
 fitShallow = True
@@ -638,8 +638,18 @@ dnnVote = False
 
 # Should the DNN be run?
 runDNN = False
+
+# Should probas be computed for shallow classifiers?
+getShallowProbas = True
+discretizePredictions = True
+
+# Dnn file name:
+modelFilename = "bestSoFar.keras"
+# Deep + Shallow weights:
+dnnWeight = [0.0, 2.0]
+
 # DNN epochs:
-totalEpochs = 130  # Overfits @ 130
+totalEpochs = 120  # Overfits @ 130
 # Batch size:
 dnnBatchSize = 32
 # Learning rate:
@@ -957,6 +967,33 @@ for d, datasetName in enumerate(datasetNames):
             imputerConfig = {"missingValue": np.NaN, "strategy": "median"}
             imputeFeature(featureString, tempFeature, datasetName, imputerConfig, encodersDictionary)
 
+            # # DF for plotting:
+            # fuckLabels = datasets["train"]["labels"]
+            # # Change 1 -> True, 0 -> False:
+            # fuckLabels = replaceFeatureValue(fuckLabels, 1, True)
+            # fuckLabels = replaceFeatureValue(fuckLabels, 0, False)
+            #
+            # # Join:
+            # plotDF = tempFeature.join(fuckLabels)
+            #
+            # # Figure size
+            # plt.figure(figsize=(5, 5))
+            # # Histogram
+            # sns.histplot(data=plotDF, x="CabinNum", hue='Transported',
+            #              kde=True)
+            # # Aesthetics
+            # plt.title('Group distribution')
+            # plt.xlabel("CabinNum")
+
+            # Bin cabin numb feature into categories:
+            #   Group 1 -> [-1, 300)
+            #   Group 2 -> [300, 600)
+            #   Group 3 -> [600, 900)
+            #   Group 4 -> [900, 1200)
+            #   Group 5 -> [1200, 1500)
+            #   Group 6 -> [1500, 1800)
+            #   Group 6 -> [1800, 2000)
+
             print("Segmenting feature: ", featureString)
 
             # Set bin labels:
@@ -987,6 +1024,27 @@ for d, datasetName in enumerate(datasetNames):
 
             # Set column slice:
             columnName = cabinGroupsFeatures[-1]
+
+            # # Lemme plot:
+            # fuckLabels = datasets["train"]["labels"]
+            # # Change 1 -> True, 0 -> False:
+            # fuckLabels = replaceFeatureValue(fuckLabels, 1, True)
+            # fuckLabels = replaceFeatureValue(fuckLabels, 0, False)
+            #
+            # plotDF = segmentedCabin.reset_index(drop=True)
+            # plotDF = plotDF.join(fuckLabels)
+            #
+            # # Figure size
+            # for currentBin in cabinGroupsFeatures:
+            #     plt.figure(figsize=(4, 4))
+            #     # Histogram
+            #     sns.histplot(data=plotDF, x=currentBin, hue='Transported',
+            #                  kde=True)
+            #     # Aesthetics
+            #     plt.title('Age distribution')
+            #     plt.xlabel(currentBin)
+            #
+            # plt.show()
 
             if computeCabinNumRanges:
                 print("Computing Cabin Ranges...")
@@ -1020,6 +1078,23 @@ for d, datasetName in enumerate(datasetNames):
 
                 # Scale the ranges:
                 standardizeFeature(featureName, segmentedCabin, datasetName, cabinRangeScaler, encodersDictionary)
+
+                # # Lemme plot:
+                # fuckLabels = datasets["train"]["labels"]
+                # # Change 1 -> True, 0 -> False:
+                # fuckLabels = replaceFeatureValue(fuckLabels, 1, True)
+                # fuckLabels = replaceFeatureValue(fuckLabels, 0, False)
+                #
+                # plotDF = segmentedCabin.reset_index(drop=True)
+                # plotDF = plotDF.join(fuckLabels)
+                #
+                # plt.figure(figsize=(10, 4))
+                # # Histogram
+                # sns.histplot(data=plotDF, x="CabinGroup-Ranges", hue='Transported',
+                #              kde=True)
+                # # Aesthetics
+                # plt.title('Proba Distribution')
+                # plt.xlabel("CabinNum")
 
                 # Set end of the slice:
                 columnName = featureName
@@ -1068,6 +1143,27 @@ for d, datasetName in enumerate(datasetNames):
 
     # Remove cabin features?
     if removeCabinFeatures and cabinGroupsFeatures:
+
+        # # DF for plotting:
+        # fuckLabels = datasets["train"]["labels"]
+        # # Change 1 -> True, 0 -> False:
+        # fuckLabels = replaceFeatureValue(fuckLabels, 1, True)
+        # fuckLabels = replaceFeatureValue(fuckLabels, 0, False)
+        #
+        # # Join:
+        # plotDF = preprocessedDataset.join(fuckLabels)
+        #
+        # # Figure size
+        # for currentBin in cabinGroupsFeatures:
+        #     plt.figure(figsize=(5, 5))
+        #     # Histogram
+        #     sns.histplot(data=plotDF, x=currentBin, hue='Transported',
+        #                  kde=True)
+        #     # Aesthetics
+        #     plt.title('Group distribution')
+        #     plt.xlabel(currentBin)
+        #
+        # plt.show()
 
         print("Removing Cabin Groups features...")
         for featureName in cabinGroupsFeatures:
@@ -1251,9 +1347,9 @@ if fitShallow:
                             "Params": []},
                        "RandomForest":
                            {"Model": RandomForestClassifier(random_state=rng,
-                                                            n_estimators=48,
-                                                            max_depth=20,
-                                                            max_features=44,
+                                                            n_estimators=45,
+                                                            max_depth=10,
+                                                            max_features=40,
                                                             # max_leaf_nodes=20,
                                                             min_samples_split=15,
                                                             ),
@@ -1272,7 +1368,9 @@ if fitShallow:
 
                        "AdaBoost":
                            {"Model": AdaBoostClassifier(random_state=rng,
-                                                        base_estimator=DecisionTreeClassifier(max_depth=1),
+                                                        base_estimator=DecisionTreeClassifier(max_depth=1,
+                                                                                              # max_features=25
+                                                                                              ),
                                                         n_estimators=500,
                                                         learning_rate=0.3
                                                         ),
@@ -1280,7 +1378,15 @@ if fitShallow:
                        }
 
     # Classifiers that compose the ensemble:
+
+    # classifierNames = ["SVM", "LogisticRegression", "RandomForest"]
+    # classifierNames = ["SVM", "LogisticRegression", "DecisionTree"]
+
+    # classifierNames = ["SVM", "DecisionTree"]
+
     classifierNames = ["GradientBoost", "AdaBoost", "SVM"]
+
+    # classifierNames = ["SVM", "LogisticRegression"]
 
     # Prepare the voting classifier:
     if modelType == "VotingClassifier":
@@ -1381,7 +1487,6 @@ if fitShallow:
         if dnnVote:
 
             # Load DNN model:
-            modelFilename = "dnnModel.keras"
             modelPath = projectPath + modelFilename
             fileExists = os.path.exists(modelPath)
 
@@ -1437,8 +1542,20 @@ if fitShallow:
                 # Dnn predictions:
                 dnnPredictions = dnnModel.predict(tensorFeatures)
 
+                # Check DNN accuracy:
+                dnnLoss, dnnAccuracy = dnnModel.evaluate(tensorFeatures, testLabels)
+                print("DNN Val. loss:", dnnLoss)
+                print("DNN Val. accuracy:", dnnAccuracy)
+
+                # "Discretize" DNN predictions:
+                if discretizePredictions:
+                    print("Discretizing DNN predictions...")
+                    dnnPredictions = (dnnPredictions >= 0.5).astype(int)
+
                 # Average both predictions:
-                predictionAverage = (dnnPredictions + predictionProbabilities) / 2.0
+                print("Dnn Weight: ", dnnWeight[0], " Shallow Classifiers Weight: ", dnnWeight[1])
+                predictionAverage = (dnnWeight[0] * dnnPredictions +
+                                     dnnWeight[1] * predictionProbabilities) / 2.0
                 # Set to output variable:
                 predictionProbabilities = (predictionAverage >= 0.5).astype(int)
                 predictionProbabilities = predictionProbabilities.flatten()
@@ -1651,11 +1768,48 @@ if getFinalPredictions:
         print("Predicting final values with best binary threshold: ", binaryThreshold)
         finalPredictions = (finalModel.predict_proba(testFeatures)[:, 1] >= binaryThreshold).astype(int)
 
+    if dnnVote:
+        print("Averaging shallow predictions with DNN predictions...")
+        print("Dnn Weight: ", dnnWeight[0], " Shallow Classifiers Weight: ", dnnWeight[1])
+
+        # Get prediction probabilities:
+        classifierPredictions = finalModel.predict_proba(testFeatures)
+        classifierPredictions = classifierPredictions[:, 1]
+        # Row to column:
+        classifierPredictions = classifierPredictions.reshape(-1, 1)
+
+        # Feature data frame to tensors:
+        tensorFeatures = tf.convert_to_tensor(testFeatures)
+        # Dnn predictions:
+        dnnPredictions = dnnModel.predict(tensorFeatures)
+
+        # "Discretize" DNN predictions:
+        if discretizePredictions:
+            print("Discretizing DNN predictions...")
+            dnnPredictions = (dnnPredictions >= 0.5).astype(int)
+
+        # Compute weighted predictions:
+        deepPredictions = dnnWeight[0] * dnnPredictions
+        shallowPredictions = dnnWeight[1] * classifierPredictions
+
+        # Average both predictions:
+        averagePredictions = (deepPredictions + shallowPredictions) / 2.0
+        # Set to output variable:
+        finalPredictions = (averagePredictions >= 0.5).astype(int)
+
+        # Dnn string appended to filename:
+        dnnString = "-dnn"
+
+    else:
+
+        # Transpose original array (row to column):
+        finalPredictions = finalPredictions.reshape(-1, 1)
+
+        # Dnn string appended to filename:
+        dnnString = ""
+
     # Convert numpy array to dataframe:
     finalPredictionsDataFrame = pd.DataFrame(finalPredictions)
-
-    # Transpose original array (row to column):
-    finalPredictions = finalPredictions.reshape(-1, 1)
 
     # Change 1 -> True, 0 -> False:
     finalPredictionsDataFrame = replaceFeatureValue(finalPredictionsDataFrame, 1, True)
@@ -1667,7 +1821,7 @@ if getFinalPredictions:
     # Write CSV:
     if writeOutfile:
         # Get classifier name:
-        classifierName = bestModel["Model"].__class__.__name__
+        classifierName = bestModel["Model"].__class__.__name__ + dnnString
         # Concatenate type of voting if VotingClassifier:
         if modelType == "VotingClassifier":
             classifierName = classifierName + "-" + svmVoting
