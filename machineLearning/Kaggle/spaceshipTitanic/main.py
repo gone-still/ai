@@ -1,9 +1,9 @@
 # File        :   spaceshipTitanic.py
-# Version     :   2.2.0
+# Version     :   2.2.1
 # Description :   Solution for Kaggle"s Spaceship Titanic problem
 #                 (https://www.kaggle.com/competitions/spaceship-titanic)
 
-# Date:       :   Nov 30, 2023
+# Date:       :   Dec 04, 2023
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -32,6 +32,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
+from sklearn.preprocessing import PowerTransformer
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.ensemble import IsolationForest
 
@@ -461,15 +462,17 @@ def standardizeFeature(featureName, dataset, datasetName, scalerType, encoderDic
             currentScaler = MinMaxScaler()
         elif scalerType == "Standard":
             currentScaler = StandardScaler()
+        elif scalerType == "Robust":
+            currentScaler = RobustScaler()
         else:
             # Option not found:
             raise TypeError("standarizeNumerical>> Error: Received unsupported scaling type: " + scalerType)
 
         # Fit + transform:
         if isString:
-            dataset[featureName] = currentScaler.fit_transform(dataset[[featureName]])
+            dataset[featureName] = currentScaler.fit_transform(dataset[[featureName]]).astype("float64")
         else:
-            dataset[featureName] = currentScaler.fit_transform(dataset[featureName])
+            dataset[featureName] = currentScaler.fit_transform(dataset[featureName]).astype("float64")
 
         # Store transformer into dict:
         encoderDictionary[dictName + "-Scaler"] = currentScaler
@@ -482,9 +485,9 @@ def standardizeFeature(featureName, dataset, datasetName, scalerType, encoderDic
 
         # Transform feature:
         if isString:
-            dataset[featureName] = currentScaler.transform(dataset[[featureName]])
+            dataset[featureName] = currentScaler.transform(dataset[[featureName]]).astype("float64")
         else:
-            dataset[featureName] = currentScaler.transform(dataset[featureName])
+            dataset[featureName] = currentScaler.transform(dataset[featureName]).astype("float64")
 
 
 # Imputes missing data:
@@ -584,6 +587,42 @@ def oheFeature(featureName, inputDataset, outputDataset, datasetName, encoderDic
     return currentEncoder.categories_[0]
 
 
+# Power transforms a feature:
+def powerTransformFeature(featureName, inputDataset, datasetName, encoderDictionary):
+    print("-> Power-Transforming feature:", featureName)
+
+    # Get feature type (should be a str or a list):
+    isString = isinstance(featureName, str)
+    if not isString:
+        dictName = '-'.join(featureName)
+    else:
+        dictName = featureName
+
+    if datasetName == "train":
+        print(">> [Train] Fitting + Transforming: ", dictName)
+        # Create the encoder object:
+        currentTransformer = PowerTransformer()
+
+        # Fit + transform:
+        if isString:
+            inputDataset[featureName] = currentTransformer.fit_transform(inputDataset[[featureName]]).astype("float64")
+        else:
+            inputDataset[featureName] = currentTransformer.fit_transform(inputDataset[featureName]).astype("float64")
+
+        # Store encoder into dictionary:
+        encoderDictionary[dictName + "-Transformer"] = currentTransformer
+
+    else:
+        print(">> [Val/Test] Transforming: ", featureName)
+        # Create the encoder object:
+        currentTransformer = encoderDictionary[dictName + "-Transformer"]
+        # Transform feature:
+        if isString:
+            inputDataset[featureName] = currentTransformer.transform(inputDataset[[featureName]]).astype("float64")
+        else:
+            inputDataset[featureName] = currentTransformer.transform(inputDataset[featureName]).astype("float64")
+
+
 # Project Path:
 projectPath = "D://dataSets//spaceTitanic//"
 # Output Path:
@@ -617,6 +656,10 @@ includeNumerical = True
 # Number of bin partitions of each numerical feature:
 numericalBins = 4
 
+# Should Power Transform be applied to numerical features?
+transformNumerical = False
+
+
 # Test split:
 # -1 uses all train dataset for training (no validation):
 testSplit = 0.2
@@ -627,8 +670,9 @@ svmVoting = "soft"
 
 # Run final dataset through best predictor:
 getFinalPredictions = False
+
 # Write final CSV?
-writeOutfile = False
+writeOutfile = True
 
 # Fit shallow predictors:
 fitShallow = True
@@ -641,6 +685,8 @@ runDNN = False
 
 # Should probas be computed for shallow classifiers?
 getShallowProbas = True
+
+# Should the transformation pred >= 0.5 -> 1, 0 be applied?
 discretizePredictions = True
 
 # Dnn file name:
@@ -1186,7 +1232,13 @@ for d, datasetName in enumerate(datasetNames):
         # Do not change the original DF:
         tempDataframe = numericalFeatures.copy()
         # Before appending the features, scale them:
-        standardizeFeature(featureNames, tempDataframe, datasetName, numericalScaler, encodersDictionary)
+        currentScaler = "Standard"
+        standardizeFeature(featureNames, tempDataframe, datasetName, currentScaler, encodersDictionary)
+
+        # Transform feature?
+        if transformNumerical:
+            powerTransformFeature(featureNames, tempDataframe, datasetName, encodersDictionary)
+
         # Append to final dataset:
         preprocessedDataset = preprocessedDataset.join(tempDataframe)
 
