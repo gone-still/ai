@@ -1,0 +1,5 @@
+('sample14.png', 'sample15.png')
+('sample16.png', 'sample17.png')
+('sample0.png', 'sample1.png')
+('sample6.png', 'sample7.png')
+('sample48.png', 'sample49.png')
