@@ -211,7 +211,7 @@ writeDir = "D://dataSets//faces//"
 
 # Mode -> Read :  Reads dataset and READS the text files for validation and training
 # Mode -> Write : Reads dataset and WRITES the text files for validation and training
-mode = "fuck"
+mode = "write"
 
 # Overwrite output files?
 overwriteFiles = True
