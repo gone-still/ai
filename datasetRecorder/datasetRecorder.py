@@ -1,8 +1,8 @@
 # File        :   datasetRecorder.py
-# Version     :   0.5.1
+# Version     :   1.1.0
 # Description :   Records the state of a dataset (samples in validation split +training split)
 
-# Date:       :   Sept 10, 2024
+# Date:       :   Sept 12, 2024
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -136,30 +136,82 @@ def readListFromFile(filePath: str) -> list:
     return outList
 
 
-def createDataset(totalFiles: int) -> list:
+def createDataset(totalFiles: int, shuffleList=True) -> list:
     """
-    Creates a dummy dataset, a list of strings representing filenames
+    Creates a dummy dataset, a list of strings representing filenames along a random binary label
     :param totalFiles: total files (strings) desired in the list
     :return: output list of filenames
     """
-    datasetList = [("sample" + str(i * 2) + ".png", "sample" + str((i * 2) + 1) + ".png") for i in range(0, totalFiles)]
+    datasetList = [("sample" + str(i * 2) + ".png", "sample" + str((i * 2) + 1) + ".png", str(random.randint(0, 1))) for
+                   i in range(0, totalFiles)]
+
+    # Shuffle the list of samples:
+    if shuffleList:
+        random.shuffle(datasetList)
+
     return datasetList
 
 
-# Output txt file names:
-outFiles = ["trainSamples", "valSamples"]
+def checkDataLeaks(writeDir: str, outFiles: list, fileExtension: str) -> dict:
+    """
+    Function that checks two files (given as string paths) for data leakages
+    :param writeDir: Directory where the files are stored in disk
+    :param outFiles: File names of the files containing the datasets
+    :param fileExtension: Extension of the files, should be ".txt"
+    :return: Dictionary with keys:
+    foundLeaks - Found leaks bool,
+    leaks - The list of duplicated items,
+    totalLeaks - Total of leaks found as integer
+    """
+    # Check file names:
+    if len(outFiles) != 2:
+        raise ValueError("checkDataLeaks>> Filename list got: ", len(outFiles), "items but expected 2.")
+
+    # Create file paths:
+    filePaths = [writeDir + filename + fileExtension for filename in outFiles]
+
+    # Check if files exist:
+    for currentFile in filePaths:
+        fileExists = os.path.isfile(currentFile)
+        if not fileExists:
+            raise ValueError("checkDataLeaks>> Error: File", currentFile, " does not exist.")
+
+    # Open files into lists:
+    datasets = [readListFromFile(currentFile) for currentFile in filePaths]
+
+    # Check intersection between the two lists:
+    intersectionSet = list(set(datasets[0]).intersection(datasets[1]))
+    # How many elements:
+    nIntersections = len(intersectionSet)
+
+    foundDuplicates = False
+    if nIntersections != 0:
+        foundDuplicates = True
+
+    # Pack results:
+    outDict = {"foundLeaks": foundDuplicates, "leaks": intersectionSet, "totalLeaks": nIntersections}
+
+    # Done:
+    return outDict
+
+
+# Datasets string names:
+datasetNames = {"training": "trainSamples", "validation": "valSamples"}
+
+# List with output txt file names:
+outFiles = [datasetNames["training"], datasetNames["validation"]]
 
 # Dictionary of file names with item list (pair strings) and dataset name:
 filesDict = {
-    outFiles[0]: {"list": [], "name": "training", "newSamples": 0},
-    outFiles[1]: {"list": [], "name": "validation", "newSamples": 0}
+    datasetNames["training"]: {"list": [], "name": "training", "newSamples": 0},
+    datasetNames["validation"]: {"list": [], "name": "validation", "newSamples": 0}
 }
 
 writeDir = "D://dataSets//faces//"
 
 # Mode -> Read :  Reads dataset and READS the text files for validation and training
 # Mode -> Write : Reads dataset and WRITES the text files for validation and training
-mode = "read"
+mode = "fuck"
 
 # Overwrite output files?
 overwriteFiles = True
@@ -179,11 +231,8 @@ datasetSamples = {}
 
 if mode == "write":
 
-    # Create the "Dataset" (2-item tuples of sample names):
+    # Create the "Dataset" (3-item tuples of sample names and binary label):
     dataset = createDataset(totalFiles=20)
-
-    # Shuffle the list of samples:
-    random.shuffle(dataset)
 
     # Read the samples, create the two output files:
     print("Mode: Write...")
@@ -205,22 +254,21 @@ if mode == "write":
 
     # Write files:
     listsToWrite = [trainList, validationList]
-    fileNames = [outFiles[0], outFiles[1]]
-    writeDatasets(writeDir, listsToWrite, fileNames, ".txt", overwriteFiles)
+    # fileNames = [datasetNames["training"], datasetNames["validation"]]
+    writeDatasets(writeDir, listsToWrite, outFiles, ".txt", overwriteFiles)
 
 # "Read" Mode:
 elif mode == "read":
 
-    # Create the "Dataset" (2-item tuples of sample names):
-    dataset = createDataset(totalFiles=25)
-
-    # Shuffle the list of samples:
-    random.shuffle(dataset)
+    # Create the "Dataset" (3-item tuples of sample names and binary label):
+    dataset = createDataset(totalFiles=41)
 
     print("Mode: Read...")
 
+    # Counters for each dataset partition:
+    pastSampleCount = {datasetNames["training"]: 0, datasetNames["validation"]: 0}
+
     # Read dataset files:
-    pastSampleCount = {outFiles[0]: 0, outFiles[0]: 0}
     for currentName in outFiles:
         # Create file path:
         currentFile = writeDir + currentName + ".txt"
@@ -229,7 +277,7 @@ elif mode == "read":
         fileExists = os.path.isfile(currentFile)
 
         if not fileExists:
-            print("Error - File: ", currentFile, "does not exist.")
+            raise ValueError("Error: File", currentFile, " does not exist.")
         else:
             print("Opening text file: ", currentFile)
 
@@ -251,11 +299,6 @@ elif mode == "read":
 
     # New samples are stored here:
     newSamples = []
-
-    # # Process dataset
-    # for currentName in outFiles:
-    #     print("Processing dataset: ", filesDict[currentName]["name"])
-    #     currentDataset = filesDict[currentName]["list"]
 
     # Loop through new dataset, get sample tuple:
     for currentSample in dataset:
@@ -284,24 +327,20 @@ elif mode == "read":
     if totalNewSamples != 0:
         print("Found new samples, updating datasets...")
 
-        # Adjust dataset partitions:
-        # Training samples are in filesDict[trainSamples]["list"]
-        # Validation samples are in filesDict[valSamples]["list"]
-
         # New samples added and are yet to be spead across the lists
         # are in newSamples
         # New Dataset Size = Past Dataset (files read) + New Samples
-        pastDatasetSize = pastSampleCount[outFiles[0]] + pastSampleCount[outFiles[1]]
+        pastDatasetSize = pastSampleCount[datasetNames["training"]] + pastSampleCount[datasetNames["validation"]]
         newDatasetSize = pastDatasetSize + totalNewSamples
         totalTrain = math.ceil(trainPortion * newDatasetSize)
 
         # Get number of new train samples and store it in dict:
-        newTrainSamples = totalTrain - pastSampleCount[outFiles[0]]
-        filesDict[outFiles[0]]["newSamples"] = newTrainSamples
+        newTrainSamples = totalTrain - pastSampleCount[datasetNames["training"]]
+        filesDict[datasetNames["training"]]["newSamples"] = newTrainSamples
 
         # Get number of new val samples and store it in dict:
         valNewSamples = totalNewSamples - newTrainSamples
-        filesDict[outFiles[1]]["newSamples"] = valNewSamples
+        filesDict[datasetNames["validation"]]["newSamples"] = valNewSamples
 
         # Check out the new numbers:
         for currentName in outFiles:
@@ -324,7 +363,6 @@ elif mode == "read":
 
             # Check if there are new items to be added to the list:
             if samplesToTake != 0:
-
                 # Get new elements from list:
                 currentSlice = popSampleList[-samplesToTake:]
 
@@ -341,8 +379,8 @@ elif mode == "read":
 
         # Check out the new dataset values:
         print("New dataset size:", newDatasetSize)
-        print(" -> Training portion:", len(filesDict[outFiles[0]]["list"]) / newDatasetSize)
-        print(" -> Validation portion:", len(filesDict[outFiles[1]]["list"]) / newDatasetSize)
+        print(" -> Training portion:", len(filesDict[datasetNames["training"]]["list"]) / newDatasetSize)
+        print(" -> Validation portion:", len(filesDict[datasetNames["validation"]]["list"]) / newDatasetSize)
 
         # List len = 0 check:
         if len(popSampleList) != 0:
@@ -350,6 +388,14 @@ elif mode == "read":
                              "elements.")
 
         # Write new files:
-        listsToWrite = [filesDict[outFiles[0]]["list"], filesDict[outFiles[1]]["list"]]
-        fileNames = [outFiles[0], outFiles[1]]
-        writeDatasets(writeDir, listsToWrite, fileNames, ".txt", True)
+        listsToWrite = [filesDict[datasetNames["training"]]["list"], filesDict[datasetNames["validation"]]["list"]]
+        # fileNames = [datasetNames["training"], datasetNames["validation"]]
+        writeDatasets(writeDir, listsToWrite, outFiles, ".txt", True)
+
+# Check for data leakages, the function returns a dict with results:
+leakResults = checkDataLeaks(writeDir, outFiles, ".txt")
+# Flag is in the "foundLeaks" key:
+foundLeaks = leakResults["foundLeaks"]
+
+# Print results:
+print(foundLeaks, leakResults)
