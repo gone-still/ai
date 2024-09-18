@@ -1,72 +1,30 @@
-# File        :   datasetRecorder.py
-# Version     :   1.1.0
+# File        :   DatasetRecorder.py
+# Version     :   1.5.1
 # Description :   Records the state of a dataset (samples in validation split +training split)
 
-# Date:       :   Sept 12, 2024
+# Date:       :   Sept 17, 2024
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
-import cv2
-import os
+# To-do:
+# Backup mechanism for past saved training and validation text files, so no
+# overwriting occurs.
 
+import os
 import random
 import math
-
 import ast
 
-from pathlib import Path
 
-
-def isEven(number: int) -> bool:
+# Module-level functions:
+def writeList2File(filePath: str, outputList: list, verbose=False) -> None:
     """
-    Checks if a number is even
-    :param number: the number to check
-    :return: bool, True if even, False if odd
-    """
-    if number % 2 == 0:
-        return True
-    else:
-        return False
+    Writes a list of strings to a text file.
 
-
-def readImage(imagePath):
-    """
-    Reads image via OpenCV
-    """
-    # Loads image:
-    inputImage = cv2.imread(imagePath)
-    # Checks if image was successfully loaded:
-    if inputImage is None:
-        raise ValueError("readImage>> Error: Could not load Input image.")
-    return inputImage
-
-
-def showImage(imageName, inputImage):
-    """
-    Shows an image in a OpenCV High GUI window
-    """
-    cv2.namedWindow(imageName, cv2.WINDOW_NORMAL)
-    cv2.imshow(imageName, inputImage)
-    cv2.waitKey(0)
-
-
-def writeImage(imagePath, inputImage):
-    """
-    Writes an png image
-    :param imagePath: image path as a string
-    :param inputImage: image as a numpy array
-    :return: Void
-    """
-    cv2.imwrite(imagePath, inputImage, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-    print("writeImage>> Wrote Image: " + imagePath)
-
-
-def writeList2File(filePath: str, outputList: list) -> None:
-    """
-    Writes a list of strings to a text file:
     :param filePath: path of the text file
-    :param outputList: List of strings to write
-    :return: Void
+    :param outputList: list of strings to write
+    :param verbose: enable debug output
+    :return: None
     """
     # Open file in write mode:
     file = open(filePath, "w")
@@ -75,52 +33,22 @@ def writeList2File(filePath: str, outputList: list) -> None:
     for currentTuple in outputList:
         # Convert tuple to string:
         currentLine = str(currentTuple) + "\n"
-
+        # print("Writing Line: ", currentLine)
         # Write to file:
         file.write(currentLine)
 
     # Close and return:
     file.close()
-    print("Wrote out file: ", filePath)
+    if verbose:
+        print("writeList2File>> Wrote out file: ", filePath)
 
 
-# writeFiles(writeDir, listsToWrite, outFiles, overwriteFiles)
-def writeDatasets(writeDir: str, listsToWrite: list, fileNames: list, fileExtension: str, overWriteFile: bool) -> None:
+def readListFromFile(filePath: str, verbose=False) -> list:
     """
-    Write training and validation sample lists as text files:
-    :param writeDir: Writing directory
-    :param listsToWrite: Lists of samples of each dataset to write
-    :param fileNames: text output filenames
-    :param fileExtension: extension of the file (txt)
-    :param overWriteFile: overwrite file flag
-    :return: None
-    """
-    # Check if output dir exists:
-    directoryExists = os.path.isdir(writeDir)
-    if not directoryExists:
-        raise ValueError("Error: Output directory does not exist. Dir: ", writeDir)
+    Open and parses a list of tuple strings from a text file.
 
-    # Write files:
-    for i, currentList in enumerate(listsToWrite):
-        # Prepare out text file:
-        filePath = writeDir + fileNames[i] + fileExtension
-        print("Writing out file: ", filePath)
-
-        # Check if output dir exists:
-        if os.path.exists(filePath):
-            if not overWriteFile:
-                print("File exists, skipping...")
-                # If file already exists, skip iteration...
-                continue
-
-        # Write list in file:
-        writeList2File(filePath, currentList)
-
-
-def readListFromFile(filePath: str) -> list:
-    """
-    Open and parses a list of tuple strings from a text file
     :param filePath: path to the text file
+    :param verbose: enable debug output
     :return: list with tuples
     """
     # Open text file:
@@ -136,266 +64,389 @@ def readListFromFile(filePath: str) -> list:
     return outList
 
 
-def createDataset(totalFiles: int, shuffleList=True) -> list:
-    """
-    Creates a dummy dataset, a list of strings representing filenames along a random binary label
-    :param totalFiles: total files (strings) desired in the list
-    :return: output list of filenames
-    """
-    datasetList = [("sample" + str(i * 2) + ".png", "sample" + str((i * 2) + 1) + ".png", str(random.randint(0, 1))) for
-                   i in range(0, totalFiles)]
+class DatasetRecorder:
 
-    # Shuffle the list of samples:
-    if shuffleList:
-        random.shuffle(datasetList)
+    # Initialization:
+    def __init__(self, workingDirectory: str, trainSplit: float = 0.8, datasetNames=None,
+                 fileExtension: str = ".txt", seed=42) -> None:
+        """
+        Initializes the dataset object.
 
-    return datasetList
+        :param workingDirectory: the path of the working directory as string
+        :param trainSplit: the portion of the dataset used for training (default 0.8)
+        :param datasetNames: the dictionary of text file names as strings
+        :param fileExtension: extension of the output file (default is ".txt")
+        :param seed: an optional seed integer to feed the rng (default is 42)
+        """
 
+        # Set attributes:
+        if datasetNames is None:
+            datasetNames = {"training": "trainSamples", "validation": "valSamples"}
 
-def checkDataLeaks(writeDir: str, outFiles: list, fileExtension: str) -> dict:
-    """
-    Function that checks two files (given as string paths) for data leakages
-    :param writeDir: Directory where the files are stored in disk
-    :param outFiles: File names of the files containing the datasets
-    :param fileExtension: Extension of the files, should be ".txt"
-    :return: Dictionary with keys:
-    foundLeaks - Found leaks bool,
-    leaks - The list of duplicated items,
-    totalLeaks - Total of leaks found as integer
-    """
-    # Check file names:
-    if len(outFiles) != 2:
-        raise ValueError("checkDataLeaks>> Filename list got: ", len(outFiles), "items but expected 2.")
+        self._workingDirectory = workingDirectory
+        self._trainSplit = trainSplit
+        self._datasetNames = datasetNames
+        self._fileExtension = fileExtension
+        self._verbose = False
 
-    # Create file paths:
-    filePaths = [writeDir + filename + fileExtension for filename in outFiles]
+        # Create the target directories:
+        self._trainDirectory = os.path.join(self._workingDirectory,
+                                            self._datasetNames["training"] + self._fileExtension)
+        self._valDirectory = os.path.join(self._workingDirectory,
+                                          self._datasetNames["validation"] + self._fileExtension)
 
-    # Check if files exist:
-    for currentFile in filePaths:
-        fileExists = os.path.isfile(currentFile)
-        if not fileExists:
-            raise ValueError("checkDataLeaks>> Error: File", currentFile, " does not exist.")
+        # Counters for each dataset partition:
+        self._sampleCounters = {self._datasetNames["training"]: 0, self._datasetNames["validation"]: 0}
 
-    # Open files into lists:
-    datasets = [readListFromFile(currentFile) for currentFile in filePaths]
+        # Dictionary of file names with item list (pair strings) and dataset name:
+        self._filesDict = {
+            self._datasetNames["training"]: {"list": [], "name": "training", "newSamples": 0},
+            self._datasetNames["validation"]: {"list": [], "name": "validation", "newSamples": 0}
+        }
 
-    # Check intersection between the two lists:
-    intersectionSet = list(set(datasets[0]).intersection(datasets[1]))
-    # How many elements:
-    nIntersections = len(intersectionSet)
+        # Set the random seed:
+        self._seed = seed
 
-    foundDuplicates = False
-    if nIntersections != 0:
-        foundDuplicates = True
+        # Data leaks dictionary:
+        self._dataLeaksDict = {"foundLeaks": 0, "leaks": [], "totalLeaks": 0, "totalTrainSamples": 0,
+                               "totalValSamples": 0}
 
-    # Pack results:
-    outDict = {"foundLeaks": foundDuplicates, "leaks": intersectionSet, "totalLeaks": nIntersections}
+        print("DatasetRecorder>> [Training] Directory set to: ", self._trainDirectory)
+        print("DatasetRecorder>> [Validation] Directory set to: ", self._valDirectory)
 
-    # Done:
-    return outDict
+    def setVerbose(self, verbose=False):
+        """
+        Enables debug output.
 
+        :param verbose: boolean flag to set the mode
+        :return: None
+        """
+        self._verbose = verbose
 
-# Datasets string names:
-datasetNames = {"training": "trainSamples", "validation": "valSamples"}
+        if self._verbose:
+            print("DatasetRecorder>> Verbose mode enabled.")
 
-# List with output txt file names:
-outFiles = [datasetNames["training"], datasetNames["validation"]]
+    def createDataset(self, totalFiles: int, shuffleList=True) -> list:
+        """
+        Creates a dummy dataset, a list of strings representing filenames along a random binary label.
 
-# Dictionary of file names with item list (pair strings) and dataset name:
-filesDict = {
-    datasetNames["training"]: {"list": [], "name": "training", "newSamples": 0},
-    datasetNames["validation"]: {"list": [], "name": "validation", "newSamples": 0}
-}
+        :param totalFiles: total files (strings) desired in the list
+        :return: output list of filenames
+        """
+        # Seed the rgn:
+        random.seed(self._seed)
+        # Create dataset:
+        datasetList = [("sample" + str(i * 2) + ".png", "sample" + str((i * 2) + 1) + ".png", str(random.randint(0, 1)))
+                       for
+                       i in range(0, totalFiles)]
 
-writeDir = "D://dataSets//faces//"
+        # Shuffle the list of samples:
+        if shuffleList:
+            random.shuffle(datasetList)
 
-# Mode -> Read :  Reads dataset and READS the text files for validation and training
-# Mode -> Write : Reads dataset and WRITES the text files for validation and training
-mode = "write"
+        return datasetList
 
-# Overwrite output files?
-overwriteFiles = True
+    def writeDatasets(self, dataToWrite: list, overWriteFile: bool) -> None:
+        """
+        Write training and validation sample lists as text files.
 
-# Dataset partition:
-trainPortion = 0.8
-valPortion = 1.0 - trainPortion
+        :param dataToWrite: Lists of tuples containing (sampleList, writePath)
+        :param overWriteFile: overwrite file flag
+        :return: None
+        """
+        # Check if output dir exists:
+        directoryExists = os.path.isdir(self._workingDirectory)
+        if not directoryExists:
+            raise ValueError("writeDatasets>> Error: Output directory does not exist. Dir: ", self._workingDirectory)
 
-# Set seed:
-randomSeed = 42
-random.seed(randomSeed)
+        # Data to write is received in the format:
+        # [(trainList, trainPath), (valList, valPath)]
 
-# Dataset dictionary:
-# Holds sample names and dataset types: {"sample01.png":"V"},
-# Created using the info in the text files val and train samples:
-datasetSamples = {}
+        # Write files:
+        for i, currentTuple in enumerate(dataToWrite):
+            # Extract list:
+            currentList = currentTuple[0]
+            # Extract path:
+            currentPath = currentTuple[1]
 
-if mode == "write":
+            # Check if output file exists:
+            if os.path.exists(currentPath):
+                if not overWriteFile:
+                    if self._verbose:
+                        print("writeDatasets>> File exists, skipping...")
+                    # If file already exists, skip iteration...
+                    continue
+                else:
+                    if self._verbose:
+                        print("writeDatasets>> [!] Found file: " + str(currentPath) + ". Overwriting.")
 
-    # Create the "Dataset" (3-item tuples of sample names and binary label):
-    dataset = createDataset(totalFiles=20)
+            # Write list in file:
+            writeList2File(currentPath, currentList, self._verbose)
 
-    # Read the samples, create the two output files:
-    print("Mode: Write...")
+    def saveDataset(self, currentDataset: list, overwriteFiles=False) -> None:
+        """
+        Method that writes a dataset in two files inside the working directory.
+        Each file contains dataset samples spread according to the split portion indicated in the object constructor.
 
-    # Get the number of total positive samples:
-    totalSamples = len(dataset)
+        :param currentDataset: list of dataset samples
+        :param overwriteFiles: overwrite flag if the destination files already exist
+        :return: None
+        """
 
-    print("Creating Train & Validation splits from " + str(totalSamples) + " samples...")
+        # Get the number of total positive samples:
+        totalSamples = len(currentDataset)
 
-    # Create the partitions:
-    trainSamples = math.ceil(trainPortion * totalSamples)
+        # Check if list is empty
+        if totalSamples == 0:
+            raise ValueError("saveDataset>> Got an empty dataset list.")
 
-    # Split the dataset:
-    trainList = dataset[0:trainSamples]
-    validationList = dataset[trainSamples:]
+        # Read the samples, create the two output files:
+        if self._verbose:
+            print("saveDataset>> Creating Train & Validation splits from " + str(totalSamples) + " samples...")
 
-    print("-> Train samples: ", str(len(trainList)))
-    print("-> Validation samples: ", str(len(validationList)))
+        # Create the partitions:
+        trainSamples = math.ceil(self._trainSplit * totalSamples)
 
-    # Write files:
-    listsToWrite = [trainList, validationList]
-    # fileNames = [datasetNames["training"], datasetNames["validation"]]
-    writeDatasets(writeDir, listsToWrite, outFiles, ".txt", overwriteFiles)
+        # Split the dataset:
+        trainList = currentDataset[0:trainSamples]
+        validationList = currentDataset[trainSamples:]
 
-# "Read" Mode:
-elif mode == "read":
+        if self._verbose:
+            print(" -> Train samples: ", str(len(trainList)))
+            print(" -> Validation samples: ", str(len(validationList)))
 
-    # Create the "Dataset" (3-item tuples of sample names and binary label):
-    dataset = createDataset(totalFiles=41)
+        # Data to write:
+        listsToWrite = [(trainList, self._trainDirectory), (validationList, self._valDirectory)]
 
-    print("Mode: Read...")
+        # Actually write the data at their path:
+        self.writeDatasets(listsToWrite, overwriteFiles)
 
-    # Counters for each dataset partition:
-    pastSampleCount = {datasetNames["training"]: 0, datasetNames["validation"]: 0}
+    def updateDataset(self, currentDataset: list, overwriteFiles=True) -> None:
+        """
+        Method that loads a dataset as two files and updates them with new samples according to the
+        Train/Validation split.
 
-    # Read dataset files:
-    for currentName in outFiles:
-        # Create file path:
-        currentFile = writeDir + currentName + ".txt"
+        :param currentDataset: The new, input dataset that contains the last saved samples + new samples
+        :param overwriteFiles: Flag to overwrite the target text files
+        :return: None
+        """
 
-        # Check if path + file exist:
-        fileExists = os.path.isfile(currentFile)
+        # List with output file names and target directories:
+        datasetInfo = [(self._datasetNames["training"], self._trainDirectory),
+                       (self._datasetNames["validation"], self._valDirectory)]
 
-        if not fileExists:
-            raise ValueError("Error: File", currentFile, " does not exist.")
+        # Read dataset files:
+        for currentTuple in datasetInfo:
+
+            # Get current dataset name:
+            currentName = currentTuple[0]
+
+            # Get the target file path:
+            currentFile = currentTuple[1]
+
+            # Check if file exists:
+            fileExists = os.path.isfile(currentFile)
+
+            if not fileExists:
+                raise ValueError("updateDataset>> Error: File", currentFile, " does not exist.")
+            else:
+
+                if self._verbose:
+                    print("updateDataset>> Opening text file: ", currentFile)
+
+                # Receive lists of filenames/samples from text file, store it in dictionary:
+                self._filesDict[currentName]["list"] = readListFromFile(currentFile, self._verbose)
+
+                if self._verbose:
+                    print("Dataset - {" + str(self._filesDict[currentName]["name"]) + "} read successfully.")
+
+                # Add to sample counter from files, this is the amount of samples per dataset that is stored
+                # in each file. Gotta keep track of this to calculate how many new samples will be added and how
+                # the split portions get adjusted:
+                self._sampleCounters[currentName] = len(self._filesDict[currentName]["list"])
+
+        # New samples are stored here:
+        newSamples = []
+
+        # Loop through the new dataset, get sample tuple:
+        for currentSample in currentDataset:
+            sampleFound = False
+
+            # Check if current sample tuple is in either dataset:
+            for currentTuple in datasetInfo:
+
+                # Get current dataset name:
+                currentName = currentTuple[0]
+
+                if self._verbose:
+                    print("updateDataset>> Checking sample in dataset: ", currentName)
+
+                # Check both datasets:
+                if currentSample in self._filesDict[currentName]["list"]:
+                    if self._verbose:
+                        print("updateDataset>> Sample found:", currentSample, "in:", currentName)
+                    # Found, set flag & break:
+                    sampleFound = True
+                    break
+
+            # Sample not found:
+            if not sampleFound:
+
+                # This is a new sample:
+                newSamples.append(currentSample)
+
+                if self._verbose:
+                    print(" [New Sample]:", currentSample)
+
+        # Print number of new samples:
+        totalNewSamples = len(newSamples)
+
+        if self._verbose:
+            print("updateDataset>> Total New Samples: ", totalNewSamples)
+
+        # Should the datasets be updated?
+        if totalNewSamples != 0:
+
+            if self._verbose:
+                print("updateDataset>> Found new samples, updating datasets...")
+
+            # New samples added and are yet to be spead across the lists are currently stored in "newSamples"
+            # New Dataset Size = Past Dataset (files read) + New Samples
+            pastDatasetSize = self._sampleCounters[self._datasetNames["training"]] + self._sampleCounters[
+                self._datasetNames["validation"]]
+            newDatasetSize = pastDatasetSize + totalNewSamples
+            totalTrain = math.ceil(self._trainSplit * newDatasetSize)
+
+            # Get number of new train samples and store it in dict:
+            newTrainSamples = totalTrain - self._sampleCounters[self._datasetNames["training"]]
+            self._filesDict[self._datasetNames["training"]]["newSamples"] = newTrainSamples
+
+            # Get number of new val samples and store it in dict:
+            valNewSamples = totalNewSamples - newTrainSamples
+            self._filesDict[self._datasetNames["validation"]]["newSamples"] = valNewSamples
+
+            # Check out the new numbers:
+            if self._verbose:
+                for currentTuple in datasetInfo:
+                    # Get current dataset name:
+                    currentName = currentTuple[0]
+                    print("New Samples in: " + str(currentName) + " ->", self._filesDict[currentName]["newSamples"])
+
+            # Add new samples to training/validation lists:
+            random.seed(self._seed)
+            random.shuffle(newSamples)
+
+            # Shallow copy of list before modifications:
+            popSampleList = newSamples
+
+            # Update datasets :
+            newDatasetSize = 0
+            # Add new samples to previous dataset splits:
+            for currentTuple in datasetInfo:
+
+                # Get current dataset name:
+                currentName = currentTuple[0]
+
+                samplesToTake = self._filesDict[currentName]["newSamples"]
+
+                # Get initial list length prior to extending:
+                previousListLength = len(self._filesDict[currentName]["list"])
+
+                # Check if there are new items to be added to the list:
+                if samplesToTake != 0:
+                    # Get new elements from list:
+                    currentSlice = popSampleList[-samplesToTake:]
+
+                    # Pop elements from list:
+                    popSampleList = popSampleList[:-samplesToTake or None]
+                    # Add new sliced list to old list:
+                    self._filesDict[currentName]["list"] = (u := self._filesDict[currentName]["list"] + currentSlice)
+
+                # Accumulate ds size:
+                newDatasetSize += len(self._filesDict[currentName]["list"])
+
+                if self._verbose:
+                    print("[+] " + currentName, ": ", previousListLength, "->",
+                          len(self._filesDict[currentName]["list"]),
+                          "[" + str(samplesToTake) + "]")
+
+            # Check out the new dataset values:
+            if self._verbose:
+                print("New dataset size:", newDatasetSize)
+                print(" -> Training portion:",
+                      len(self._filesDict[self._datasetNames["training"]]["list"]) / newDatasetSize)
+                print(" -> Validation portion:",
+                      len(self._filesDict[self._datasetNames["validation"]]["list"]) / newDatasetSize)
+
+            # List len = 0 check:
+            if len(popSampleList) != 0:
+                raise ValueError("New samples were not entirely assigned!. List still has: ", len(popSampleList),
+                                 "elements.")
+
+            # Write new files:
+            listsToWrite = [(self._filesDict[self._datasetNames["training"]]["list"], self._trainDirectory),
+                            (self._filesDict[self._datasetNames["validation"]]["list"], self._valDirectory)]
+
+            # Actually write the data at their path:
+            self.writeDatasets(listsToWrite, overwriteFiles)
+
         else:
-            print("Opening text file: ", currentFile)
+            print("updateDataset>> No new samples found. Skipping update process.")
 
-            # Receive lists of filenames from text file, store it in
-            # dictionary:
-            filesDict[currentName]["list"] = readListFromFile(currentFile)
-            print("Dataset - {" + str(filesDict[currentName]["name"]) + "} read successfully.")
+    def checkDataLeaks(self, pathList: list = None) -> dict:
+        """
+        Function that checks two files (given as string paths) for data leakages
 
-            # Add to sample counter from files:
-            pastSampleCount[currentName] = len(filesDict[currentName]["list"])
+        :param pathList: a list with two strings denoting the target paths, if None,
+        the configured (default) paths are used instead
+        :return: Dictionary with keys:
+        foundLeaks - Found leaks bool,
+        leaks - The list of duplicated items,
+        totalLeaks - Total of leaks found as integer
+        totalTrainSamples - Total of train samples in the full dataset
+        totalValSamples - Total of validation samples in the full dataset
+        """
 
-    # # Check for number of files mismatch:
-    # currentTotalSamples = len(dataset)
-    # if currentTotalSamples != fileSamples:
-    #     print("[!] Warning - Stored datasets and read datasets do not have the same amount of samples!")
-    #     print(" -> Datasets from files: ", fileSamples, " samples.")
-    #     print(" -> Datasets from disk: ", currentTotalSamples, " samples.")
-    #     input(">> Press Enter to continue...")
+        # Set the file paths:
+        if pathList is None:
+            # Set default file paths:
+            filePaths = [self._trainDirectory, self._valDirectory]
+        else:
+            # Check list length. Needs two elements:
+            if len(pathList) != 2:
+                raise ValueError("checkDataLeaks>> Filename list got: ", len(pathList), "items but expected 2.")
+            # Use provided paths:
+            filePaths = pathList
 
-    # New samples are stored here:
-    newSamples = []
+        # Check if files exist:
+        for currentFile in filePaths:
+            fileExists = os.path.isfile(currentFile)
+            if not fileExists:
+                raise ValueError("checkDataLeaks>> Error: File", currentFile, " does not exist.")
 
-    # Loop through new dataset, get sample tuple:
-    for currentSample in dataset:
-        sampleFound = False
-        # Check if current sample tuple is in either dataset:
-        for currentName in outFiles:
-            print("Checking in dataset: ", currentName)
-            # Check both datasets:
-            if currentSample in filesDict[currentName]["list"]:
-                print("Sample found:", currentSample, "in:", currentName)
-                # Found, set flag & break:
-                sampleFound = True
-                break
+        # Open files into lists:
+        datasets = [readListFromFile(currentFile) for currentFile in filePaths]
 
-        # Sample not found:
-        if not sampleFound:
-            # This is a new sample:
-            print("[New Sample]:", currentSample)
-            newSamples.append(currentSample)
+        # Get number of samples:
+        trainSamples = len(datasets[0])
+        valSamples = len(datasets[1])
 
-    # Print number of new samples:
-    totalNewSamples = len(newSamples)
-    print("Total New Samples: ", totalNewSamples)
+        # Check intersection between the two lists:
+        intersectionSet = list(set(datasets[0]).intersection(datasets[1]))
+        # How many elements:
+        nIntersections = len(intersectionSet)
 
-    # Should the datasets be updated?
-    if totalNewSamples != 0:
-        print("Found new samples, updating datasets...")
+        foundDuplicates = False
+        if nIntersections != 0:
+            foundDuplicates = True
 
-        # New samples added and are yet to be spead across the lists
-        # are in newSamples
-        # New Dataset Size = Past Dataset (files read) + New Samples
-        pastDatasetSize = pastSampleCount[datasetNames["training"]] + pastSampleCount[datasetNames["validation"]]
-        newDatasetSize = pastDatasetSize + totalNewSamples
-        totalTrain = math.ceil(trainPortion * newDatasetSize)
+        # Pack results:
+        self._dataLeaksDict["foundLeaks"] = foundDuplicates
+        self._dataLeaksDict["leaks"] = intersectionSet
+        self._dataLeaksDict["totalLeaks"] = nIntersections
 
-        # Get number of new train samples and store it in dict:
-        newTrainSamples = totalTrain - pastSampleCount[datasetNames["training"]]
-        filesDict[datasetNames["training"]]["newSamples"] = newTrainSamples
+        self._dataLeaksDict["totalTrainSamples"] = trainSamples
+        self._dataLeaksDict["totalValSamples"] = valSamples
 
-        # Get number of new val samples and store it in dict:
-        valNewSamples = totalNewSamples - newTrainSamples
-        filesDict[datasetNames["validation"]]["newSamples"] = valNewSamples
-
-        # Check out the new numbers:
-        for currentName in outFiles:
-            print("New Samples in: " + str(currentName) + " ->", filesDict[currentName]["newSamples"])
-
-        # Add new samples to training/validation lists:
-        random.shuffle(newSamples)
-
-        # Shallow copy of list before modifications:
-        popSampleList = newSamples
-
-        # Update datasets :
-        newDatasetSize = 0
-        # Add new samples to previous dataset splits:
-        for currentName in outFiles:
-            samplesToTake = filesDict[currentName]["newSamples"]
-
-            # Get initial list length prior to extending:
-            previousListLength = len(filesDict[currentName]["list"])
-
-            # Check if there are new items to be added to the list:
-            if samplesToTake != 0:
-                # Get new elements from list:
-                currentSlice = popSampleList[-samplesToTake:]
-
-                # Pop elements from list:
-                popSampleList = popSampleList[:-samplesToTake or None]
-                # Add new sliced list to old list:
-                filesDict[currentName]["list"] = (u := filesDict[currentName]["list"] + currentSlice)
-
-            # Accumulate ds size:
-            newDatasetSize += len(filesDict[currentName]["list"])
-
-            print("[+] " + currentName, ": ", previousListLength, "->", len(filesDict[currentName]["list"]),
-                  "[" + str(samplesToTake) + "]")
-
-        # Check out the new dataset values:
-        print("New dataset size:", newDatasetSize)
-        print(" -> Training portion:", len(filesDict[datasetNames["training"]]["list"]) / newDatasetSize)
-        print(" -> Validation portion:", len(filesDict[datasetNames["validation"]]["list"]) / newDatasetSize)
-
-        # List len = 0 check:
-        if len(popSampleList) != 0:
-            raise ValueError("New samples were not entirely assigned!. List still has: ", len(popSampleList),
-                             "elements.")
-
-        # Write new files:
-        listsToWrite = [filesDict[datasetNames["training"]]["list"], filesDict[datasetNames["validation"]]["list"]]
-        # fileNames = [datasetNames["training"], datasetNames["validation"]]
-        writeDatasets(writeDir, listsToWrite, outFiles, ".txt", True)
-
-# Check for data leakages, the function returns a dict with results:
-leakResults = checkDataLeaks(writeDir, outFiles, ".txt")
-# Flag is in the "foundLeaks" key:
-foundLeaks = leakResults["foundLeaks"]
-
-# Print results:
-print(foundLeaks, leakResults)
+        # Done:
+        return self._dataLeaksDict
