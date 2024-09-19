@@ -1,8 +1,8 @@
 # File        :   DatasetRecorder.py
-# Version     :   1.5.1
+# Version     :   1.5.2
 # Description :   Records the state of a dataset (samples in validation split +training split)
 
-# Date:       :   Sept 17, 2024
+# Date:       :   Sept 19, 2024
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -104,6 +104,12 @@ class DatasetRecorder:
             self._datasetNames["validation"]: {"list": [], "name": "validation", "newSamples": 0}
         }
 
+        # Dictionary of datasets, holds each processed dataset for external use:
+        self._datasetDict = {
+            self._datasetNames["training"]: [],
+            self._datasetNames["validation"]: [],
+        }
+
         # Set the random seed:
         self._seed = seed
 
@@ -183,14 +189,15 @@ class DatasetRecorder:
             # Write list in file:
             writeList2File(currentPath, currentList, self._verbose)
 
-    def saveDataset(self, currentDataset: list, overwriteFiles=False) -> None:
+    def saveDataset(self, currentDataset: list, overwriteFiles=False) -> dict:
         """
         Method that writes a dataset in two files inside the working directory.
         Each file contains dataset samples spread according to the split portion indicated in the object constructor.
 
         :param currentDataset: list of dataset samples
         :param overwriteFiles: overwrite flag if the destination files already exist
-        :return: None
+        :return: A dictionary with each dataset in the keys provided by datasetNames.
+        Default names are "trainSamples" and "valSamples".
         """
 
         # Get the number of total positive samples:
@@ -221,14 +228,22 @@ class DatasetRecorder:
         # Actually write the data at their path:
         self.writeDatasets(listsToWrite, overwriteFiles)
 
-    def updateDataset(self, currentDataset: list, overwriteFiles=True) -> None:
+        # Pack the results in dict:
+        self._datasetDict[self._datasetNames["training"]] = trainList
+        self._datasetDict[self._datasetNames["validation"]] = validationList
+
+        # Return the processed datasets:
+        return self._datasetDict
+
+    def updateDataset(self, currentDataset: list, overwriteFiles=True) -> dict:
         """
         Method that loads a dataset as two files and updates them with new samples according to the
         Train/Validation split.
 
         :param currentDataset: The new, input dataset that contains the last saved samples + new samples
         :param overwriteFiles: Flag to overwrite the target text files
-        :return: None
+        :return: A dictionary with each dataset in the keys provided by datasetNames.
+        Default names are "trainSamples" and "valSamples".
         """
 
         # List with output file names and target directories:
@@ -383,15 +398,28 @@ class DatasetRecorder:
                 raise ValueError("New samples were not entirely assigned!. List still has: ", len(popSampleList),
                                  "elements.")
 
-            # Write new files:
-            listsToWrite = [(self._filesDict[self._datasetNames["training"]]["list"], self._trainDirectory),
-                            (self._filesDict[self._datasetNames["validation"]]["list"], self._valDirectory)]
+            # Write new files,
+            # Call the list containing the datasets:
+            trainList = self._datasetDict[self._datasetNames["training"]] = \
+                self._filesDict[self._datasetNames["training"]]["list"]
+            validationList = self._datasetDict[self._datasetNames["validation"]] = \
+                self._filesDict[self._datasetNames["validation"]]["list"]
+
+            # Pack the lists into a list of two elements:
+            listsToWrite = [(trainList, self._trainDirectory), (validationList, self._valDirectory)]
 
             # Actually write the data at their path:
             self.writeDatasets(listsToWrite, overwriteFiles)
 
+            # Pack the results in dict:
+            self._datasetDict[self._datasetNames["training"]] = trainList
+            self._datasetDict[self._datasetNames["validation"]] = validationList
+
         else:
             print("updateDataset>> No new samples found. Skipping update process.")
+
+        # Return the processed datasets:
+        return self._datasetDict
 
     def checkDataLeaks(self, pathList: list = None) -> dict:
         """
