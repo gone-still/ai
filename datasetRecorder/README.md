@@ -26,7 +26,15 @@ for dictTuple in myDataset.items():
     print("-> Dataset: ", dictTuple[0])
     print("   Samples:", dictTuple[1])
 ```
-
+Example output:
+```python
+'''
+-> Dataset:  trainSamples
+   Samples: [('sample34.png', 'sample35.png', '0'), ('sample14.png', 'sample15.png', '0'), ('sample38.png', 'sample39.png', '1'), ('sample22.png', 'sample23.png', '0'), ('sample8.png', 'sample9.png', '0'), ('sample30.png', 'sample31.png', '0'), ('sample28.png', 'sample29.png', '0'), ('sample18.png', 'sample19.png', '0'), ('sample12.png', 'sample13.png', '0'), ('sample32.png', 'sample33.png', '1'), ('sample2.png', 'sample3.png', '0'), ('sample36.png', 'sample37.png', '1'), ('sample24.png', 'sample25.png', '0'), ('sample6.png', 'sample7.png', '0'), ('sample4.png', 'sample5.png', '1'), ('sample16.png', 'sample17.png', '1')]
+-> Dataset:  valSamples
+   Samples: [('sample20.png', 'sample21.png', '0'), ('sample26.png', 'sample27.png', '0'), ('sample10.png', 'sample11.png', '0'), ('sample0.png', 'sample1.png', '0')]
+'''
+```
 3. Later, if you add more samples to the dataset, you can read and update it while mantaining the original partition split (usually 80/20):
 ```python
 myDataset = myDatasetRecorder.updateDataset(dummyDataset)
