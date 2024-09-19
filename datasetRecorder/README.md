@@ -26,6 +26,7 @@ for dictTuple in myDataset.items():
     print("-> Dataset: ", dictTuple[0])
     print("   Samples:", dictTuple[1])
 ```
+
 Example output:
 ```python
 '''
@@ -35,6 +36,7 @@ Example output:
    Samples: [('sample20.png', 'sample21.png', '0'), ('sample26.png', 'sample27.png', '0'), ('sample10.png', 'sample11.png', '0'), ('sample0.png', 'sample1.png', '0')]
 '''
 ```
+
 3. Later, if you add more samples to the dataset, you can read and update it while mantaining the original partition split (usually 80/20):
 ```python
 myDataset = myDatasetRecorder.updateDataset(dummyDataset)
