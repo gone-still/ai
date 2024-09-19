@@ -53,7 +53,7 @@ Printing the new dataset yields:
 '''
 ```
 
-4. You can check if data is leaking between the two dataset partions:
+4. You can check if data is leaking between the two dataset partitions:
 ```python
 leakResults = myDatasetRecorder.checkDataLeaks()
 
