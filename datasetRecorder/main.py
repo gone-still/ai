@@ -1,10 +1,10 @@
 # File        :   main.py
-# Version     :   1.0.1
+# Version     :   1.1.0
 # Description :   Usage example of the DatasetRecorder module.
 #                 The module records and resumes the "state" of a dataset as a pair of txt files while
 #                 avoiding data leaks and maintaining a training/validation split.
 
-# Date:       :   Sept 19, 2024
+# Date:       :   Sept 24, 2024
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -49,8 +49,9 @@ dummyDataset = myDatasetRecorder.createDataset(totalFiles=20)
 # The method will partition the dataset in two splits: Training and Validation
 # according to the default split portion and will produce two text files
 # inside the working directory.
-# It also returns the processed dataset as a dictionary:
-myDataset = myDatasetRecorder.saveDataset(dummyDataset, overwriteFiles=True)
+# "Backup" mode preserves original files IF they are found.
+# The method also returns the processed dataset as a dictionary:
+myDataset = myDatasetRecorder.saveDataset(dummyDataset, overwriteMode="Backup")
 
 # print the dataset:
 printDataset(myDataset)

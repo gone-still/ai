@@ -1,8 +1,8 @@
 # File        :   DatasetRecorder.py
-# Version     :   1.5.2
+# Version     :   1.6.1
 # Description :   Records the state of a dataset (samples in validation split +training split)
 
-# Date:       :   Sept 19, 2024
+# Date:       :   Sept 24, 2024
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -14,6 +14,7 @@ import os
 import random
 import math
 import ast
+from datetime import date, datetime
 
 
 # Module-level functions:
@@ -64,6 +65,31 @@ def readListFromFile(filePath: str, verbose=False) -> list:
     return outList
 
 
+def getDateString(verbose: bool = False) -> str:
+    """
+    Returns a string with the  current time + date
+    :param verbose: debug flag
+    :return: date string in the format: "_hh-mm-ss-Month-Day-Year"
+    """
+    # get date:
+    currentDate = date.today()
+    currentDate = currentDate.strftime("%b-%d-%Y")
+
+    # Get time:
+    currentTime = datetime.now()
+    currentTime = currentTime.strftime("%H:%M:%S")
+
+    # Drop them nasty ":s":
+    timeString = "_" + currentTime[0:2] + "-" + currentTime[3:5] + "-" + currentTime[6:8]
+
+    if verbose:
+        print("getDateString>> Current Time: " + currentTime + " Date String: " + timeString)
+
+    dateString = timeString + "-" + currentDate
+
+    return dateString
+
+
 class DatasetRecorder:
 
     # Initialization:
@@ -110,6 +136,9 @@ class DatasetRecorder:
             self._datasetNames["validation"]: [],
         }
 
+        # Overwrite mode dictionary:
+        self._overwriteModeTable = {"Overwrite": 1, "Keep": 2, "Backup": 3}
+
         # Set the random seed:
         self._seed = seed
 
@@ -119,6 +148,10 @@ class DatasetRecorder:
 
         print("DatasetRecorder>> [Training] Directory set to: ", self._trainDirectory)
         print("DatasetRecorder>> [Validation] Directory set to: ", self._valDirectory)
+
+        # Paths to dataset names dictionary:
+        self._pathsDictionary = {self._trainDirectory: self._datasetNames["training"],
+                                 self._valDirectory: self._datasetNames["validation"]}
 
     def setVerbose(self, verbose=False):
         """
@@ -143,8 +176,7 @@ class DatasetRecorder:
         random.seed(self._seed)
         # Create dataset:
         datasetList = [("sample" + str(i * 2) + ".png", "sample" + str((i * 2) + 1) + ".png", str(random.randint(0, 1)))
-                       for
-                       i in range(0, totalFiles)]
+                       for i in range(0, totalFiles)]
 
         # Shuffle the list of samples:
         if shuffleList:
@@ -152,12 +184,13 @@ class DatasetRecorder:
 
         return datasetList
 
-    def writeDatasets(self, dataToWrite: list, overWriteFile: bool) -> None:
+    def writeDatasets(self, dataToWrite: list, overwriteCode: int = 1) -> None:
         """
         Write training and validation sample lists as text files.
 
         :param dataToWrite: Lists of tuples containing (sampleList, writePath)
-        :param overWriteFile: overwrite file flag
+        :param overwriteCode: overwrite mode as int (1 ->"Overwrite files", 2 -> "Do not overwrite",
+        3 -> "Create backup before overwriting")
         :return: None
         """
         # Check if output dir exists:
@@ -177,25 +210,65 @@ class DatasetRecorder:
 
             # Check if output file exists:
             if os.path.exists(currentPath):
-                if not overWriteFile:
-                    if self._verbose:
-                        print("writeDatasets>> File exists, skipping...")
-                    # If file already exists, skip iteration...
-                    continue
-                else:
+
+                # Overwrite original files:
+                if overwriteCode == 1:
+
                     if self._verbose:
                         print("writeDatasets>> [!] Found file: " + str(currentPath) + ". Overwriting.")
 
-            # Write list in file:
-            writeList2File(currentPath, currentList, self._verbose)
+                    # Write list in file:
+                    writeList2File(currentPath, currentList, self._verbose)
 
-    def saveDataset(self, currentDataset: list, overwriteFiles=False) -> dict:
+                # Do not overwrite files:
+                elif overwriteCode == 2:
+
+                    if self._verbose:
+                        print("writeDatasets>> File: " + currentPath + " exists, skipping...")
+                    # If file already exists, skip iteration...
+                    continue
+
+                else:
+
+                    # "Back files before writing them" mode:
+                    if self._verbose:
+                        print("writeDatasets>> Backing up file...")
+
+                    # Get date string:
+                    dateString = getDateString(self._verbose)
+
+                    # Get dataset name:
+                    datasetName = self._pathsDictionary[currentPath]
+
+                    # Append date string:
+                    datasetName += dateString
+
+                    # Create new path:
+                    backupPath = os.path.join(self._workingDirectory, datasetName + self._fileExtension)
+
+                    # Rename file:
+                    os.rename(currentPath, backupPath)
+
+                    if self._verbose:
+                        print("writeDatasets>> Backed up file to:", backupPath)
+
+                    # Write new file at original path:
+                    writeList2File(currentPath, currentList, self._verbose)
+            else:
+
+                if self._verbose:
+                    print("writeDatasets>> Creating File for the first time...")
+
+                # Write list in file:
+                writeList2File(currentPath, currentList, self._verbose)
+
+    def saveDataset(self, currentDataset: list, overwriteMode="Overwrite") -> dict:
         """
         Method that writes a dataset in two files inside the working directory.
         Each file contains dataset samples spread according to the split portion indicated in the object constructor.
 
         :param currentDataset: list of dataset samples
-        :param overwriteFiles: overwrite flag if the destination files already exist
+        :param overwriteMode: overwrite mode as string, one of the following: "Overwrite", "Keep", "Backup"
         :return: A dictionary with each dataset in the keys provided by datasetNames.
         Default names are "trainSamples" and "valSamples".
         """
@@ -225,8 +298,17 @@ class DatasetRecorder:
         # Data to write:
         listsToWrite = [(trainList, self._trainDirectory), (validationList, self._valDirectory)]
 
-        # Actually write the data at their path:
-        self.writeDatasets(listsToWrite, overwriteFiles)
+        # Check overwrite mode:
+        if overwriteMode in self._overwriteModeTable:
+
+            # Get overwrite code and call write dataset function:
+            overwriteCode = self._overwriteModeTable[overwriteMode]
+            self.writeDatasets(listsToWrite, overwriteCode)
+
+        else:
+            # Mode not supported:
+            raise ValueError("saveDataset>> Error. Overwrite mode not supported. Options are: ",
+                             self._overwriteModeTable)
 
         # Pack the results in dict:
         self._datasetDict[self._datasetNames["training"]] = trainList
