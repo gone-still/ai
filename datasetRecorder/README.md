@@ -43,12 +43,26 @@ myDataset = myDatasetRecorder.updateDataset(dummyDataset)
 ```
 
 The ``DatasetRecorder`` object will recall the last saved state of both partitions, include the new samples while avoiding data leaks and return the processed dataset as a new dictionary.
+Printing the new dataset yields:
+```python
+'''
+-> Dataset:  trainSamples
+   Samples: [('sample34.png', 'sample35.png', '0'), ('sample14.png', 'sample15.png', '0'), ('sample38.png', 'sample39.png', '1'), ('sample22.png', 'sample23.png', '0'), ('sample8.png', 'sample9.png', '0'), ('sample30.png', 'sample31.png', '0'), ('sample28.png', 'sample29.png', '0'), ('sample18.png', 'sample19.png', '0'), ('sample12.png', 'sample13.png', '0'), ('sample32.png', 'sample33.png', '1'), ('sample2.png', 'sample3.png', '0'), ('sample36.png', 'sample37.png', '1'), ('sample24.png', 'sample25.png', '0'), ('sample6.png', 'sample7.png', '0'), ('sample4.png', 'sample5.png', '1'), ('sample16.png', 'sample17.png', '1'), ('sample68.png', 'sample69.png', '1'), ('sample76.png', 'sample77.png', '1'), ('sample56.png', 'sample57.png', '0'), ('sample60.png', 'sample61.png', '1'), ('sample58.png', 'sample59.png', '0'), ('sample74.png', 'sample75.png', '0'), ('sample42.png', 'sample43.png', '0'), ('sample50.png', 'sample51.png', '0'), ('sample40.png', 'sample41.png', '0'), ('sample48.png', 'sample49.png', '1'), ('sample52.png', 'sample53.png', '0'), ('sample78.png', 'sample79.png', '0'), ('sample86.png', 'sample87.png', '0'), ('sample54.png', 'sample55.png', '1'), ('sample84.png', 'sample85.png', '0'), ('sample66.png', 'sample67.png', '1'), ('sample72.png', 'sample73.png', '1'), ('sample88.png', 'sample89.png', '0'), ('sample62.png', 'sample63.png', '0'), ('sample46.png', 'sample47.png', '1')]
+-> Dataset:  valSamples
+   Samples: [('sample20.png', 'sample21.png', '0'), ('sample26.png', 'sample27.png', '0'), ('sample10.png', 'sample11.png', '0'), ('sample0.png', 'sample1.png', '0'), ('sample64.png', 'sample65.png', '1'), ('sample82.png', 'sample83.png', '1'), ('sample80.png', 'sample81.png', '1'), ('sample70.png', 'sample71.png', '0'), ('sample44.png', 'sample45.png', '1')]
+'''
+```
 
-4. You can check if data is leaking between the two dataset partions:
+4. You can check if data is leaking between the two dataset partitions:
 ```python
 leakResults = myDatasetRecorder.checkDataLeaks()
 
 # Flag is in the "foundLeaks" key:
 foundLeaks = leakResults["foundLeaks"]
 print("Found Leaks?", foundLeaks)
+```
+
+Output:
+```python
+Found Leaks? False
 ```
