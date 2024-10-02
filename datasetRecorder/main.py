@@ -1,10 +1,10 @@
 # File        :   main.py
-# Version     :   1.1.0
+# Version     :   1.1.2
 # Description :   Usage example of the DatasetRecorder module.
 #                 The module records and resumes the "state" of a dataset as a pair of txt files while
 #                 avoiding data leaks and maintaining a training/validation split.
 
-# Date:       :   Sept 24, 2024
+# Date:       :   Oct 1, 2024
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -51,10 +51,18 @@ dummyDataset = myDatasetRecorder.createDataset(totalFiles=20)
 # inside the working directory.
 # "Backup" mode preserves original files IF they are found.
 # The method also returns the processed dataset as a dictionary:
-myDataset = myDatasetRecorder.saveDataset(dummyDataset, overwriteMode="Backup")
+originalDataset = myDatasetRecorder.saveDataset(dummyDataset, overwriteMode="Backup")
 
 # print the dataset:
-printDataset(myDataset)
+printDataset(originalDataset)
+
+# Let's read the saved datasets and store them in a dictionary with default keys:
+readDataset = myDatasetRecorder.readSavedDataset()
+print(readDataset)
+
+# Check if the restored dataset is equal to the original dataset:
+if originalDataset != readDataset:
+    print("Datasets don't match!")
 
 # Let's create another dataset, this time with some more samples (25 new samples, in fact).
 # This is supposed to emulate the gathering of new samples after the original dataset was used
@@ -65,10 +73,10 @@ dummyDataset = myDatasetRecorder.createDataset(totalFiles=45)
 # The method will read the dataset's past state and will append the new samples
 # while keeping the original split.
 # It also returns the updated dataset as a dictionary:
-myDataset = myDatasetRecorder.updateDataset(dummyDataset)
+updatedDataset = myDatasetRecorder.updateDataset(dummyDataset)
 
 # print the dataset:
-printDataset(myDataset)
+printDataset(updatedDataset)
 
 # Check for data leakages, the method returns a dict with results:
 # The argument to this function can be a list containing the paths to the datasets,

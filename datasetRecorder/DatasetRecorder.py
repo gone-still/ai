@@ -1,8 +1,8 @@
 # File        :   DatasetRecorder.py
-# Version     :   1.6.1
+# Version     :   1.6.3
 # Description :   Records the state of a dataset (samples in validation split +training split)
 
-# Date:       :   Sept 24, 2024
+# Date:       :   Sept 1, 2024
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -502,6 +502,40 @@ class DatasetRecorder:
 
         # Return the processed datasets:
         return self._datasetDict
+
+    def readSavedDataset(self, pathList: list = None) -> dict:
+        """
+        Reads two files that represent previous saved datasets and returns them
+        as a dict with default keys datasetNames "trainSamples" and "valSamples"
+        :param pathList: a list with two strings denoting the target paths, if None,
+        the configured (default) paths are used instead
+        :return: Dictionary with default keys for each dataset
+        """
+
+        # Set the file paths:
+        if pathList is None:
+            # Set default file paths:
+            filePaths = [self._trainDirectory, self._valDirectory]
+        else:
+            # Check list length. Needs two elements:
+            if len(pathList) != 2:
+                raise ValueError("readSavedDataset>> Filename list got: ", len(pathList), "items but expected 2.")
+            # Use provided paths:
+            filePaths = pathList
+
+        # Check if files exist:
+        for currentFile in filePaths:
+            fileExists = os.path.isfile(currentFile)
+            if not fileExists:
+                raise ValueError("readSavedDataset>> Error: File", currentFile, " does not exist.")
+
+        # Open files into lists:
+        datasets = [readListFromFile(currentFile) for currentFile in filePaths]
+
+        # Create out dict:
+        outDict = {self._datasetNames["training"]: datasets[0], self._datasetNames["validation"]: datasets[1]}
+
+        return outDict
 
     def checkDataLeaks(self, pathList: list = None) -> dict:
         """
