@@ -1,8 +1,8 @@
 # File        :   DatasetRecorder.py
-# Version     :   1.6.1
+# Version     :   1.6.4
 # Description :   Records the state of a dataset (samples in validation split +training split)
 
-# Date:       :   Sept 24, 2024
+# Date:       :   Oct 3, 2024
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
@@ -15,6 +15,7 @@ import random
 import math
 import ast
 from datetime import date, datetime
+from typing import Union
 
 
 # Module-level functions:
@@ -262,34 +263,69 @@ class DatasetRecorder:
                 # Write list in file:
                 writeList2File(currentPath, currentList, self._verbose)
 
-    def saveDataset(self, currentDataset: list, overwriteMode="Overwrite") -> dict:
+    def saveDataset(self, currentDataset: Union[list, dict], overwriteMode="Overwrite") -> dict:
         """
         Method that writes a dataset in two files inside the working directory.
         Each file contains dataset samples spread according to the split portion indicated in the object constructor.
 
-        :param currentDataset: list of dataset samples
+        :param currentDataset: can be list or dict. If list, pass all the dataset as one big list of paths and labels,
+        the method will partition the dataset.
+        If the dataset has been manually split, pass it as a dict of two lists with the keys "trainSamples" and "valSamples"
+        for each partition.
         :param overwriteMode: overwrite mode as string, one of the following: "Overwrite", "Keep", "Backup"
         :return: A dictionary with each dataset in the keys provided by datasetNames.
         Default names are "trainSamples" and "valSamples".
         """
 
-        # Get the number of total positive samples:
-        totalSamples = len(currentDataset)
+        # Get dataset type> list -> create partitions, dict -> use manual partitions
+        datasetType = type(currentDataset)
 
-        # Check if list is empty
-        if totalSamples == 0:
-            raise ValueError("saveDataset>> Got an empty dataset list.")
+        if datasetType is list:
 
-        # Read the samples, create the two output files:
-        if self._verbose:
-            print("saveDataset>> Creating Train & Validation splits from " + str(totalSamples) + " samples...")
+            if self._verbose:
+                print("saveDataset>> Splitting dataset in training and validation portions...")
 
-        # Create the partitions:
-        trainSamples = math.ceil(self._trainSplit * totalSamples)
+            # Get the number of total positive samples:
+            totalSamples = len(currentDataset)
 
-        # Split the dataset:
-        trainList = currentDataset[0:trainSamples]
-        validationList = currentDataset[trainSamples:]
+            # Check if list is empty
+            if totalSamples == 0:
+                raise ValueError("saveDataset>> Got an empty dataset list.")
+
+            # Read the samples, create the two output files:
+            if self._verbose:
+                print("saveDataset>> Creating Train & Validation splits from " + str(totalSamples) + " samples...")
+
+            # Create the partitions:
+            trainSamples = math.ceil(self._trainSplit * totalSamples)
+
+            # Split the dataset:
+            trainList = currentDataset[0:trainSamples]
+            validationList = currentDataset[trainSamples:]
+
+        elif datasetType is dict:
+
+            # Use manual partition:
+            totalDatasets = len(currentDataset)
+
+            # Check if we have exactly 2 datasets:
+            if totalDatasets != 2:
+                raise ValueError("saveDataset>> Expected 2 keys {Train/Valid} in dataset dictionary, got: ",
+                                 totalDatasets)
+
+            # Check keys:
+            for key in [self._datasetNames["training"], self._datasetNames["validation"]]:
+                if key not in currentDataset:
+                    raise ValueError("saveDataset>> Key: " + str(key) + " not found in dataset.")
+
+            # Store partitions:
+            trainList = currentDataset[self._datasetNames["training"]]
+            validationList = currentDataset[self._datasetNames["validation"]]
+
+        else:
+
+            # Type not supported:
+            raise ValueError("saveDataset>> Dataset type not supported. Got: ", datasetType, ". Expected list or dict.")
 
         if self._verbose:
             print(" -> Train samples: ", str(len(trainList)))
