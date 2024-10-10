@@ -1,14 +1,13 @@
 # File        :   main.py
-# Version     :   1.1.2
+# Version     :   1.1.6
 # Description :   Usage example of the DatasetRecorder module.
 #                 The module records and resumes the "state" of a dataset as a pair of txt files while
 #                 avoiding data leaks and maintaining a training/validation split.
 
-# Date:       :   Oct 1, 2024
+# Date:       :   Oct 9, 2024
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
 
-import os
 from DatasetRecorder import DatasetRecorder
 
 
@@ -85,10 +84,10 @@ leakResults = myDatasetRecorder.checkDataLeaks()
 
 # Flag is in the "foundLeaks" key:
 foundLeaks = leakResults["foundLeaks"]
-print("Found Leaks?", foundLeaks)
+print("[!] Found Leaks?", foundLeaks)
 
-# Print results:
-print("Leak Results:", leakResults)
+# Print full leak results including a count of every sample in the dataset:
+# print("Leak Results:", leakResults)
 
 # Show some other stats:
 totalTrainSamples = leakResults["totalTrainSamples"]

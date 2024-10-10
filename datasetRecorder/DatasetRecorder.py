@@ -1,15 +1,10 @@
 # File        :   DatasetRecorder.py
-# Version     :   1.6.5
-
+# Version     :   1.7.6
 # Description :   Records the state of a dataset (samples in validation split +training split)
 
-# Date:       :   Oct 3, 2024
+# Date:       :   Oct 9, 2024
 # Author      :   Ricardo Acevedo-Avila (racevedoaa@gmail.com)
 # License     :   MIT
-
-# To-do:
-# Backup mechanism for past saved training and validation text files, so no
-# overwriting occurs.
 
 import os
 import random
@@ -17,6 +12,7 @@ import math
 import ast
 from datetime import date, datetime
 from typing import Union
+from collections import Counter
 
 
 # Module-level functions:
@@ -146,7 +142,7 @@ class DatasetRecorder:
 
         # Data leaks dictionary:
         self._dataLeaksDict = {"foundLeaks": 0, "leaks": [], "totalLeaks": 0, "totalTrainSamples": 0,
-                               "totalValSamples": 0}
+                               "totalValSamples": 0, "sampleCounts": {}}
 
         print("DatasetRecorder>> [Training] Directory set to: ", self._trainDirectory)
         print("DatasetRecorder>> [Validation] Directory set to: ", self._valDirectory)
@@ -166,6 +162,14 @@ class DatasetRecorder:
 
         if self._verbose:
             print("DatasetRecorder>> Verbose mode enabled.")
+
+    def getDatasetNames(self):
+        """
+        Returns the original dataset names used by the DatasetRecorder object.
+
+        :return: Dictionary with dataset names in the keys "training" and "validation"
+        """
+        return self._datasetNames
 
     def createDataset(self, totalFiles: int, shuffleList=True) -> list:
         """
@@ -606,28 +610,107 @@ class DatasetRecorder:
                 raise ValueError("checkDataLeaks>> Error: File", currentFile, " does not exist.")
 
         # Open files into lists:
-        datasets = [readListFromFile(currentFile) for currentFile in filePaths]
+        tempDatasets = [readListFromFile(currentFile) for currentFile in filePaths]
 
-        # Get number of samples:
-        trainSamples = len(datasets[0])
-        valSamples = len(datasets[1])
+        # Check length of read datasets:
+        tempDatasetsSize = len(tempDatasets)
+        if tempDatasetsSize != 2:
+            raise ValueError("checkDataLeaks>> Error: Input dataset list does not have two elements. Expected: Training"
+                             "and Validation -> 2 Elements in list, but list has:", tempDatasetsSize, "elements.")
+
+        # Pre-processed datasets the dataset.
+        # The assumption is that each dataset row represents one or multiple sample paths (as strings) and one label
+        # (which could be string or numerical).
+        # A data leak is present if any sample appears in more than one dataset.
+        # We first discard the numerical label, since it does not contribute to the leak detection, we need to process
+        # only the sample path strings.
+        # Since one or more paths could be present in a row, we need to flatten the paths into a new list,
+        # one row per path.
+
+        # Then, we will be able to get the intersection between the two "flattened" datasets, and look for multiple
+        # references of the same string path.
+
+        # Store flattened datasets here. This list expects exactly two elements:
+        datasets = [[] for i in range(tempDatasetsSize)]
+
+        # Loop through the datasets:
+        for datasetIndex in range(2):
+
+            # Unpack the dataset:
+            unpackedList = list(zip(*tempDatasets[datasetIndex]))
+
+            # Get unpacked list size:
+            listSize = len(unpackedList)
+
+            # Look for the list item (or column) that corresponds to the labels and
+            # must be discarded. As the labels are usually located at the last item,
+            # start from the end to the start:
+            for sliceIndex in range(listSize - 1, 0, -1):
+
+                # Get first item of the last element, this is the possible label:
+                possibleLabel = str(unpackedList[sliceIndex][0])
+
+                # Is this a number? If so, must be the label...
+                isNumber = possibleLabel.replace(".", "", 1).isdigit()
+
+                if isNumber:
+                    # Slice:
+                    unpackedList = unpackedList[0:sliceIndex]
+                    # Break loop:
+                    break
+
+            # Flatten sample list in dataset list:
+            datasets[datasetIndex] = [listElement
+                                      for currentItem in unpackedList
+                                      for listElement in currentItem]
+
+        # Check dataset sizes:
+        for i in range(2):
+            # Get original & "expanded" dataset:
+            originalDatasetSize = len(tempDatasets[i])
+            expandedDatasetSize = len(datasets[i])
+
+            # Check sizes:
+            # Individual samples and sample pairs:
+            if expandedDatasetSize != (2 * originalDatasetSize):
+                raise ValueError("checkDataLeaks>> Error: Original and Expanded datasets do not mach. "
+                                 "Error in dataset: ", i)
 
         # Check intersection between the two lists:
-        intersectionSet = list(set(datasets[0]).intersection(datasets[1]))
+        intersectionSet = list(set(datasets[0]).intersection(set(datasets[1])))
         # How many elements:
         nIntersections = len(intersectionSet)
 
+        # Found duplicates?
         foundDuplicates = False
         if nIntersections != 0:
             foundDuplicates = True
+
+        # Dictionary comprehension to count occurrences of each sample in dataset list:
+        sampleOccurrences = {listItem: listCount
+                             for currentList in datasets
+                             for listItem, listCount in Counter(currentList).items()}
+
+        # Alternative, manually counting occurrences using a single pass through the list without Counter.
+        # This works in linear time  O(n), where n is the length of the list:
+        # count_dict = {}
+        # for item in my_list:
+        #     count_dict[item] = count_dict.get(item, 0) + 1
+
+        # Sort dictionary's keys:
+        sampleOccurrences = dict(sorted(sampleOccurrences.items()))
 
         # Pack results:
         self._dataLeaksDict["foundLeaks"] = foundDuplicates
         self._dataLeaksDict["leaks"] = intersectionSet
         self._dataLeaksDict["totalLeaks"] = nIntersections
 
-        self._dataLeaksDict["totalTrainSamples"] = trainSamples
-        self._dataLeaksDict["totalValSamples"] = valSamples
+        # Get number of samples:
+        self._dataLeaksDict["totalTrainSamples"] = len(datasets[0])
+        self._dataLeaksDict["totalValSamples"] = len(datasets[1])
+
+        # Occurrences counters:
+        self._dataLeaksDict["sampleCounts"] = sampleOccurrences
 
         # Done:
         return self._dataLeaksDict
